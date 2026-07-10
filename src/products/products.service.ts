@@ -61,6 +61,18 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
+    if (updateProductDto.sku || updateProductDto.name) {
+      const conflict = await this.productRepository.findOne({
+        where: [
+          ...(updateProductDto.sku ? [{ sku: updateProductDto.sku }] : []),
+          ...(updateProductDto.name ? [{ name: updateProductDto.name }] : []),
+        ],
+      });
+      if (conflict && conflict.id !== id) {
+        throw new ConflictException('Product with this name or SKU already exists');
+      }
+    }
+
     await this.productRepository.update(id, updateProductDto);
 
     return await this.productRepository.findOneBy({ id });
@@ -77,21 +89,3 @@ export class ProductsService {
     return product;
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

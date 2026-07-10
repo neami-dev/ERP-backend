@@ -51,8 +51,8 @@ services:
     restart: always
 
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@erp.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
 
     depends_on:
       - postgres
