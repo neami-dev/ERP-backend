@@ -19,6 +19,6 @@ export const DatabaseConfig: TypeOrmModuleAsyncOptions = {
 
     autoLoadEntities: true,
 
-    synchronize: true,
+    synchronize: config.getOrThrow<string>('NODE_ENV') !== 'production',
   }),
 };
