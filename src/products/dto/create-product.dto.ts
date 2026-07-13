@@ -11,6 +11,20 @@ export class CreateProductDto {
     name: string;
 
     @ApiProperty({
+        example: 999.99,
+        description: 'The selling price of the product.',
+    })
+    @IsNotEmpty()
+    sellingPrice: number;
+
+    @ApiProperty({
+        example: 799.99,
+        description: 'The purchase price of the product.',
+    })
+    @IsNotEmpty()
+    purchasePrice: number;
+
+    @ApiProperty({
         example: 'The latest iPhone model with advanced features.',
         description: 'A brief description of the product.',
     })
