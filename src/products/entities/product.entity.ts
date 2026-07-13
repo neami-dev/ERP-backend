@@ -4,10 +4,12 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany,
+  Index,
 } from 'typeorm';
 
-@Entity('products')
+
+@Entity("products")
+@Index(['name'], { unique: true })
 export class Product {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -24,13 +26,27 @@ export class Product {
   name: string;
 
   @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+  })
+  sellingPrice: number;
+
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+  })
+  purchasePrice: number;
+
+  @Column({
     type: 'text',
     nullable: true,
   })
   description?: string;
 
-//   @OneToMany(() => Inventory, (inventory) => inventory.product)
-//   inventories: Inventory[];
+  //   @OneToMany(() => Inventory, (inventory) => inventory.product)
+  //   inventories: Inventory[];
 
   @CreateDateColumn()
   createdAt: Date;
