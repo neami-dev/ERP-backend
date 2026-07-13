@@ -17,6 +17,8 @@ export class CategoriesService {
       throw new ConflictException('Category already exists');
     }
 
+    let parent: Category | null = null;
+
     const parentId = createCategoryDto?.parentId
 
     if (parentId) {
@@ -25,8 +27,13 @@ export class CategoriesService {
         throw new NotFoundException('Parent category not found');
 
       }
+      parent = categoryParent;
     }
-    const category = this.categoryRepo.create(createCategoryDto);
+    const category = this.categoryRepo.create({
+      name: createCategoryDto.name,
+      description: createCategoryDto.description,
+      parent,
+    });
     return this.categoryRepo.save(category);
   }
 
@@ -37,7 +44,10 @@ export class CategoriesService {
     const skip = (page - 1) * limit;
     const [categories, total] = await this.categoryRepo.findAndCount({
       skip,
-      take: limit
+      take: limit,
+      relations: {
+        parent: true,
+      },
     });
 
     return {
@@ -62,11 +72,11 @@ export class CategoriesService {
   async update(id: string, updateCategoryDto: UpdateCategoryDto) {
     const category = await this.findOne(id);
 
-    const perentId = updateCategoryDto?.parentId
+    const parentId = updateCategoryDto?.parentId
 
-    if (perentId) {
-      const categoryPerent = await this.categoryRepo.findOneBy({ id: perentId });
-      if (!categoryPerent) {
+    if (parentId) {
+      const categoryParent = await this.categoryRepo.findOneBy({ id: parentId });
+      if (!categoryParent) {
         throw new NotFoundException('Parent category not found');
 
       }

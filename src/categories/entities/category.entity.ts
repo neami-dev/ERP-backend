@@ -18,8 +18,8 @@ export class Category {
     id: string;
 
     @Column({
-        unique: true,
-        length: 50,
+        type: 'varchar',
+        length: 255
     })
     name: string;
 

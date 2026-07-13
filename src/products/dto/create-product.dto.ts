@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsString } from "class-validator";
+import { IsNotEmpty, IsString, MaxLength } from "class-validator";
 
 export class CreateProductDto {
     @ApiProperty({
@@ -8,6 +8,7 @@ export class CreateProductDto {
     })
     @IsString()
     @IsNotEmpty()
+    @MaxLength(255, { message: 'Name must be at most 255 characters long' })
     name: string;
 
     @ApiProperty({
@@ -38,5 +39,6 @@ export class CreateProductDto {
     })
     @IsString()
     @IsNotEmpty()
+    @MaxLength(50, { message: 'SKU must be at most 50 characters long' })
     sku: string;
 }

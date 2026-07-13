@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsOptional, IsString, IsUUID } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 
 export class CreateCategoryDto {
     @ApiProperty({
@@ -8,6 +8,7 @@ export class CreateCategoryDto {
     })
     @IsString()
     @IsNotEmpty()
+    @MaxLength(255, { message: 'Name must be at most 255 characters long' })
     name: string;
 
     @ApiProperty({
