@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsString, MaxLength } from "class-validator";
+import { Type } from "class-transformer";
+import { IsNotEmpty, IsNumber, IsString, MaxLength } from "class-validator";
 
 export class CreateProductDto {
     @ApiProperty({
@@ -15,14 +16,18 @@ export class CreateProductDto {
         example: 999.99,
         description: 'The selling price of the product.',
     })
+    @Type(() => Number)
     @IsNotEmpty()
+    @IsNumber()
     sellingPrice: number;
 
     @ApiProperty({
         example: 799.99,
         description: 'The purchase price of the product.',
     })
+    @Type(() => Number)
     @IsNotEmpty()
+    @IsNumber()
     purchasePrice: number;
 
     @ApiProperty({

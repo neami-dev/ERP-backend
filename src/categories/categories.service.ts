@@ -70,6 +70,16 @@ export class CategoriesService {
   }
 
   async update(id: string, updateCategoryDto: UpdateCategoryDto) {
+    
+    if (updateCategoryDto?.name) {
+      const existingcategory = await this.categoryRepo.existsBy(
+        { name: updateCategoryDto.name }
+      );
+      if (existingcategory) {
+        throw new ConflictException('Category already exists');
+      }
+    }
+
     const category = await this.findOne(id);
 
     const parentId = updateCategoryDto?.parentId
