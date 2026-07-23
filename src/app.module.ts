@@ -8,7 +8,12 @@ import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { AppService } from './app.service';
 import { AppController } from './app.controller';
+import { WarehousesModule } from './warehouses/warehouses.module';
 import { CategoriesModule } from './categories/categories.module';
+import { InventoriesModule } from './inventories/inventories.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
+import { PurchaseOrdersModule } from './purchases/purchases.module';
+import { CompaniesModule } from './companies/companies.module';
 
 @Module({
   controllers: [AppController],
@@ -27,6 +32,16 @@ import { CategoriesModule } from './categories/categories.module';
     ProductsModule,
 
     CategoriesModule,
+
+    WarehousesModule,
+
+    InventoriesModule,
+
+    SuppliersModule,
+
+    PurchaseOrdersModule,
+
+    CompaniesModule,
   ],
 })
 export class AppModule { }
