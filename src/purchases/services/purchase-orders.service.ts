@@ -184,7 +184,11 @@ export class PurchaseOrdersService {
       );
     }
 
-    return await this.purchaseOrderRepo.remove(purchaseOrder);
+    // TypeORM's remove() strips the primary key off the returned
+    // entity, so the id is put back for the client.
+    const removed = await this.purchaseOrderRepo.remove(purchaseOrder);
+
+    return { ...removed, id };
   }
 
   async confirm(id: string, companyId: string): Promise<PurchaseOrder> {

@@ -334,7 +334,11 @@ export class InventoriesService {
   async remove(id: string, companyId: string) {
     const inventory = await this.findOne(id, companyId);
 
-    return await this.inventoryRepo.remove(inventory);
+    // TypeORM's remove() strips the primary key off the returned
+    // entity, so the id is put back for the client.
+    const removed = await this.inventoryRepo.remove(inventory);
+
+    return { ...removed, id };
   }
 
   private async assertProductAndWarehouseBelongToCompany(

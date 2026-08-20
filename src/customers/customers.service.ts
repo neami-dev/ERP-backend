@@ -77,7 +77,11 @@ export class CustomersService {
   async remove(id: string, companyId: string) {
     const customer = await this.findOne(id, companyId);
 
-    return await this.customerRepo.remove(customer);
+    // TypeORM's remove() strips the primary key off the returned
+    // entity, so the id is put back for the client.
+    const removed = await this.customerRepo.remove(customer);
+
+    return { ...removed, id };
   }
 
   /**

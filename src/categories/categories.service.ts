@@ -127,7 +127,11 @@ export class CategoriesService {
       );
     }
 
-    return await this.categoryRepo.remove(category);
+    // TypeORM's remove() strips the primary key off the returned
+    // entity, so the id is put back for the client.
+    const removed = await this.categoryRepo.remove(category);
+
+    return { ...removed, id };
   }
 
   /**

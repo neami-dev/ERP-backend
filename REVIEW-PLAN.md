@@ -590,15 +590,79 @@ Checklist:
 
 ---
 
-## Step 4 — API contract for the frontend
+## Step 4 — API contract for the frontend 🔄 MOSTLY DONE
 
-- [ ] List responses: same shape everywhere? (`{data, total, page}` or plain array — pick one)
-- [ ] Error responses: same shape everywhere?
-- [ ] Date format: ISO string everywhere?
-- [ ] Money: `number` or `string`? (TypeORM `decimal` returns a **string** — careful!)
-- [ ] Relations: does `GET /products` return the category object or only `categoryId`?
-- [ ] No secret field leaks (password, tokens)
-- [ ] Swagger is complete → we can generate the frontend TypeScript client from it
+- [x] **List responses: same shape everywhere.** Verified all 8 list endpoints return
+      `{data, meta:{page, limit, total, totalPages}}` — identical keys.
+- [x] **Error responses: same shape everywhere.** Two problems found and fixed, below.
+- [x] **Money is a number.** Verified on products and purchase order items.
+- [x] **No secret leaks.** Swept all 10 endpoints plus signup/login: the `password`
+      field appears nowhere. The `select: false` column does its job.
+- [x] **Pagination validated.** `page=0`, `limit=999`, `page=abc` all answer 400, and a
+      page past the end returns an empty `data` with correct `meta`.
+- [ ] **Swagger response schemas — 0 of 51 endpoints.** 🔴 See below, needs a decision.
+- [ ] Date format — inconsistency found, see below.
+
+### Error shape — was inconsistent in two ways (fixed)
+
+**E1 — a 401 was missing the `error` key.** `new UnauthorizedException()` with no
+message produces `{message, statusCode}`, while every other error produces
+`{error, message, statusCode}`. The frontend would read `err.error` and get `undefined`
+exactly on the auth failure it most needs to detect.
+
+**E2 — `message` was sometimes a string, sometimes an array.** 🔴 The `ValidationPipe`
+puts one string per broken rule into `message` as an **array**; everything else puts a
+**string** there. So a frontend cannot write `toast(err.message)` — on a 400 it would
+print `[object Object]` or a raw comma-joined blob, and it has to branch on the type of
+a field first.
+
+Both fixed by a global [HttpExceptionFilter](src/common/filters/http-exception.filter.ts).
+Every error, from any source, now has exactly this shape:
+
+```json
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": "Validation failed: 12 problems",
+  "details": ["name should not be empty", "sku must be a string"],
+  "path": "/products",
+  "timestamp": "2026-08-20T13:05:41.559Z"
+}
+```
+
+`message` is **always a single string**, safe to show to a user. `details` appears only
+on validation errors and carries the per-field messages, for highlighting form fields.
+`path` and `timestamp` make a bug report from the frontend actionable.
+
+The filter also catches non-HTTP exceptions: it logs the real stack server-side and
+returns a plain "Internal server error", so a driver message or stack trace can never
+reach the client.
+
+### E3 — DELETE returned a row with no `id` (fixed)
+
+TypeORM's `remove()` **strips the primary key** off the entity it returns. So every
+`DELETE` answered with the deleted row minus the one field the frontend needs to
+remove it from a list. Verified before: `keys: [address, companyId, createdAt, name,
+updatedAt]` — no `id`. Fixed in all 8 services.
+
+### 🔴 Swagger documents no response bodies — 0 of 51 endpoints
+
+Every endpoint declares its **request** DTO (22 schemas) but **not one** declares what
+it returns. Swagger shows "200 OK" with no example, and a generated TypeScript client
+would type every response as `any`.
+
+This is the single biggest remaining obstacle to smooth frontend work: the Next.js
+developer has to open the NestJS entity files to learn the shape of every response.
+
+### Date format inconsistency (open)
+
+`orderDate` returns `"2026-08-20"` (date only) while `createdAt` returns
+`"2026-08-20T10:35:32.806Z"` (full ISO). The column is `type: 'date'`, which Postgres
+returns without a time.
+
+Watch out on the frontend: `new Date("2026-08-20")` is parsed as **UTC midnight**, so
+in a timezone behind UTC it displays as the previous day. Either keep it as a plain
+string and never build a `Date` from it, or change the column to a timestamp.
 
 ---
 

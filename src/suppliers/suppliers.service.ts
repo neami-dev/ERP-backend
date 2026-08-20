@@ -78,7 +78,11 @@ export class SuppliersService {
   async remove(id: string, companyId: string) {
     const supplier = await this.findOne(id, companyId);
 
-    return await this.supplierRepo.remove(supplier);
+    // TypeORM's remove() strips the primary key off the returned
+    // entity, so the id is put back for the client.
+    const removed = await this.supplierRepo.remove(supplier);
+
+    return { ...removed, id };
   }
 
   /**

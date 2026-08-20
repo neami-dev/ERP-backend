@@ -63,7 +63,11 @@ export class PurchaseOrderItemsService {
 
     const item = await this.findItem(purchaseOrderId, itemId);
 
-    return await this.purchaseOrderItemRepository.remove(item);
+    // TypeORM's remove() strips the primary key off the returned
+    // entity, so the id is put back for the client.
+    const removed = await this.purchaseOrderItemRepository.remove(item);
+
+    return { ...removed, id: itemId };
   }
 
   private async findItem(purchaseOrderId: string, itemId: string) {

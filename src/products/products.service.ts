@@ -103,7 +103,11 @@ export class ProductsService {
   async remove(id: string, companyId: string) {
     const product = await this.findOne(id, companyId);
 
-    return await this.productRepository.remove(product);
+    // TypeORM's remove() strips the primary key off the returned
+    // entity, so the id is put back for the client.
+    const removed = await this.productRepository.remove(product);
+
+    return { ...removed, id };
   }
 
   /**
