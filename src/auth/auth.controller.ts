@@ -1,38 +1,44 @@
+import {
+  Body,
+  Controller,
+  Post,
+  HttpCode,
+  HttpStatus,
+  Get,
+  Request,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import { Body, Controller, Post, HttpCode, HttpStatus, Get, UseGuards, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ApiBearerAuth, ApiBody } from '@nestjs/swagger';
-import { AuthGuard } from './auth.guard';
+import { SignUpDto } from './dto/sign-up.dto';
+import { SignInDto } from './dto/sign-in.dto';
+import { Public } from './decorators/public.decorator';
 
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) { }
 
-  @HttpCode(HttpStatus.OK)
-  @Post('login')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        username: {
-          type: 'string',
-          example: 'john',
-        },
-        password: {
-          type: 'string',
-          example: 'changeme',
-        },
-      },
-      required: ['username', 'password'],
-    },
+  @Public()
+  @Post('signup')
+  @ApiOperation({
+    summary: 'Create a new company and its first user',
   })
-  signIn(@Body() signInDto: Record<string, any>) {
-    return this.authService.signIn(signInDto?.username, signInDto?.password);
+  signUp(@Body() signUpDto: SignUpDto) {
+    return this.authService.signUp(signUpDto);
   }
 
-  @UseGuards(AuthGuard)
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('login')
+  @ApiOperation({ summary: 'Sign in with email and password' })
+  signIn(@Body() signInDto: SignInDto) {
+    return this.authService.signIn(signInDto);
+  }
+
   @Get('profile')
   @ApiBearerAuth('access_token')
+  @ApiOperation({ summary: 'Return the JWT payload of the current user' })
   getProfile(@Request() req) {
     return req.user;
   }

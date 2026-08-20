@@ -1,67 +1,33 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 
 import { Company } from './entities/company.entity';
-import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
-import { DocumentNumberService } from 'src/common/ document-number/document-number.service';
 
+/**
+ * A company is the tenant itself, so this service is scoped differently from
+ * the others: a user belongs to exactly one company and may only ever see and
+ * edit that one. The id always comes from the JWT, never from the client.
+ *
+ * Companies are created by `POST /auth/signup` only — that is the single path
+ * that also creates the first user and the document sequences.
+ */
 @Injectable()
 export class CompaniesService {
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
-    private readonly documentNumberService: DocumentNumberService,
-    private readonly dataSource: DataSource,
   ) { }
 
-  async create(createCompanyDto: CreateCompanyDto) { 
-    const existingCompany = await this.companyRepository.findOneBy({
-      name: createCompanyDto.name,
-    });
-
-    if (existingCompany) {
-      throw new ConflictException('Company with this name already exists');
-    }
-
-    const queryRunner = this.dataSource.createQueryRunner();
-
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const company = queryRunner.manager.create(Company, createCompanyDto);
-      await queryRunner.manager.save(company);
-      console.log({company});
-      
-      
-      await this.documentNumberService.createDefaultSequences(
-        company.id,
-        queryRunner.manager,
-      );
-
-      await queryRunner.commitTransaction();
-
-      return company;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  async findAll() {
-    return await this.companyRepository.find();
-  }
-
-  async findOne(id: string) {
-    const company = await this.companyRepository.findOneBy({ id });
+  /** The company of the caller, taken from their token. */
+  async findMine(companyId: string) {
+    const company = await this.companyRepository.findOneBy({ id: companyId });
 
     if (!company) {
       throw new NotFoundException('Company not found');
@@ -70,39 +36,48 @@ export class CompaniesService {
     return company;
   }
 
-  async update(id: string, updateCompanyDto: UpdateCompanyDto) {
-    const company = await this.companyRepository.findOneBy({ id });
+  /**
+   * @throws {ForbiddenException} If the id is not the caller's own company.
+   */
+  async findOne(id: string, companyId: string) {
+    this.assertIsOwnCompany(id, companyId);
 
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
+    return await this.findMine(companyId);
+  }
+
+  async update(
+    id: string,
+    updateCompanyDto: UpdateCompanyDto,
+    companyId: string,
+  ) {
+    this.assertIsOwnCompany(id, companyId);
+
+    const company = await this.findMine(companyId);
 
     if (updateCompanyDto.name) {
-      const conflict = await this.companyRepository.findOneBy({
+      const nameTaken = await this.companyRepository.existsBy({
         name: updateCompanyDto.name,
+        id: Not(companyId),
       });
 
-      if (conflict && conflict.id !== id) {
-        throw new ConflictException(
-          'Company with this name already exists',
-        );
+      if (nameTaken) {
+        throw new ConflictException('Company with this name already exists');
       }
     }
 
-    await this.companyRepository.update(id, updateCompanyDto);
+    Object.assign(company, updateCompanyDto);
 
-    return await this.companyRepository.findOneBy({ id });
+    return await this.companyRepository.save(company);
   }
 
-  async remove(id: string) {
-    const company = await this.companyRepository.findOneBy({ id });
-
-    if (!company) {
-      throw new NotFoundException('Company not found');
+  /**
+   * Unlike the other modules this answers 403, not 404. Hiding the row would
+   * be pointless here: the caller already knows their own company id, so a
+   * different id is plainly someone else's and saying so leaks nothing.
+   */
+  private assertIsOwnCompany(id: string, companyId: string) {
+    if (id !== companyId) {
+      throw new ForbiddenException('You can only access your own company');
     }
-
-    await this.companyRepository.delete(id);
-
-    return company;
   }
 }

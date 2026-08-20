@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateSupplierDto {
   @ApiProperty({
@@ -46,11 +46,6 @@ export class CreateSupplierDto {
   @IsBoolean()
   isActive?: boolean;
 
-  @ApiProperty({
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    description: 'The ID of the company associated with the supplier.',
-  })
-  @IsUUID()
-  @IsNotEmpty()
-  company_id: string;
+  // The company is never taken from the request body — it is read from the
+  // JWT of the caller, so a user cannot create data inside another company.
 }

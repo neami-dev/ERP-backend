@@ -1,0 +1,6 @@
+export enum StockMovementReferenceType {
+    PURCHASE_ORDER = 'PURCHASE_ORDER',
+    SALES_ORDER = 'SALES_ORDER',
+    RETURN = 'RETURN',
+    ADJUSTMENT = 'ADJUSTMENT',
+}

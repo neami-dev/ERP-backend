@@ -1,15 +1,30 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
+
 import { CreatePurchaseOrderDto } from '../dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from '../dto/update-purchase-order.dto';
-import { InjectRepository } from '@nestjs/typeorm';
 import { PurchaseOrder } from '../entities/purchase-order.entity';
-import { DataSource, Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { Supplier } from 'src/suppliers/entities/supplier.entity';
+import { Warehouse } from 'src/warehouses/entities/warehouse.entity';
 import { DocumentType } from 'src/common/ document-number/document-type.enum';
 import { DocumentNumberService } from 'src/common/ document-number/document-number.service';
-import { Company } from 'src/companies/entities/company.entity';
+import { PurchaseOrderStatus } from '../enums/purchase-order-status.enum';
+import {
+  StockMovement,
+  StockMovementReferenceType,
+  StockMovementType,
+} from 'src/stock-movements/entities/stock-movement.entity';
+import { InventoriesService } from 'src/inventories/inventories.service';
 
+/**
+ * Every method takes the `companyId` of the caller, read from their JWT, so an
+ * order and everything it points at stay inside one company.
+ *
+ * Status flow: DRAFT → CONFIRMED → RECEIVED, with CANCELLED reachable from
+ * DRAFT or CONFIRMED. Only a DRAFT can be edited.
+ */
 @Injectable()
 export class PurchaseOrdersService {
   constructor(
@@ -17,62 +32,52 @@ export class PurchaseOrdersService {
     private readonly purchaseOrderRepo: Repository<PurchaseOrder>,
     @InjectRepository(Supplier)
     private readonly supplierRepo: Repository<Supplier>,
+    @InjectRepository(Warehouse)
+    private readonly warehouseRepo: Repository<Warehouse>,
     private readonly documentNumberService: DocumentNumberService,
-    private readonly dataSource: DataSource
+    private readonly inventoriesService: InventoriesService,
+    private readonly dataSource: DataSource,
   ) { }
 
   /**
- * Creates a new purchase order within a database transaction.
- *
- * Workflow:
- * - Validates that the supplier exists.
- * - Validates that the company exists.
- * - Generates a unique purchase order number.
- * - Creates and saves the purchase order.
- * - Commits the transaction if all operations succeed.
- *
- * If any step fails, the transaction is rolled back to ensure
- * data consistency.
- *
- * @param createPurchaseOrderDto Data required to create a purchase order.
- * @returns The newly created purchase order.
- * @throws {NotFoundException} If the supplier does not exist.
- * @throws {NotFoundException} If the company does not exist.
- */
-  async create(createPurchaseOrderDto: CreatePurchaseOrderDto) {
+   * Creates a new purchase order within a database transaction.
+   *
+   * The order number is generated inside the transaction, because the
+   * generator locks the sequence row — if the order then fails to save, the
+   * rollback gives the number back instead of leaving a gap.
+   *
+   * @throws {NotFoundException} If the supplier does not belong to the company.
+   */
+  async create(
+    createPurchaseOrderDto: CreatePurchaseOrderDto,
+    companyId: string,
+  ) {
+    const { supplierId } = createPurchaseOrderDto;
+
+    const supplierExists = await this.supplierRepo.existsBy({
+      id: supplierId,
+      companyId,
+    });
+
+    if (!supplierExists) {
+      throw new NotFoundException('Supplier not found');
+    }
 
     const queryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
-    const supplierId = createPurchaseOrderDto.supplierId;
-    const companyId = createPurchaseOrderDto.companyId;
-
     try {
-      const supplier = await queryRunner.manager.findOneBy(Supplier, {
-        id: supplierId,
-      });
-
-      if (!supplier) {
-        throw new NotFoundException('Supplier not found');
-      }
-
-      const company = await queryRunner.manager.existsBy(Company, {
-        id: companyId
-      })
-
-      if (!company) {
-        throw new NotFoundException("Company not found")
-      }
-
       const orderNumber = await this.documentNumberService.generate(
         companyId,
         DocumentType.PURCHASE_ORDER,
         queryRunner,
       );
+
       const purchaseOrder = queryRunner.manager.create(PurchaseOrder, {
-        createPurchaseOrderDto,
+        ...createPurchaseOrderDto,
+        companyId,
         orderNumber,
         orderDate: new Date(),
       });
@@ -82,24 +87,23 @@ export class PurchaseOrdersService {
       await queryRunner.commitTransaction();
 
       return purchaseOrder;
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
-
     } finally {
       await queryRunner.release();
     }
-
   }
 
-  async findAll(query: PaginationDto) {
+  async findAll(query: PaginationDto, companyId: string) {
     const { page, limit } = query;
 
-    const skip = (page - 1) * limit;
     const [purchaseOrders, total] = await this.purchaseOrderRepo.findAndCount({
-      skip,
+      where: { companyId },
+      relations: { supplier: true, items: true },
+      skip: (page - 1) * limit,
       take: limit,
+      order: { createdAt: 'DESC' },
     });
 
     return {
@@ -113,46 +117,193 @@ export class PurchaseOrdersService {
     };
   }
 
-  async findOne(id: string) {
-    const purchaseOrder = await this.purchaseOrderRepo.findOneBy({ id });
+  async findOne(id: string, companyId: string) {
+    const purchaseOrder = await this.purchaseOrderRepo.findOne({
+      where: { id, companyId },
+      relations: { supplier: true, items: { product: true } },
+    });
+
     if (!purchaseOrder) {
       throw new NotFoundException('Purchase order not found');
     }
+
     return purchaseOrder;
   }
 
-  async update(id: string, updatePurchaseOrderDto: UpdatePurchaseOrderDto) {
+  /**
+   * Ensures the purchase order is still a DRAFT and may be modified.
+   *
+   * @throws {NotFoundException} If the order does not exist in this company.
+   * @throws {BadRequestException} If the order has left the DRAFT status.
+   */
+  async ensureIsDraft(id: string, companyId: string): Promise<PurchaseOrder> {
+    const purchaseOrder = await this.findOne(id, companyId);
 
+    if (purchaseOrder.status !== PurchaseOrderStatus.DRAFT) {
+      throw new BadRequestException(
+        'Only draft purchase orders can be modified.',
+      );
+    }
 
-    const purchaseOrder = await this.findOne(id);
+    return purchaseOrder;
+  }
 
-    // Handle supplierId update if provided
-    if (updatePurchaseOrderDto?.supplierId !== undefined) {
-      // If supplierId is explicitly set to null/undefined, we might want to handle that
-      // For now, if provided, we'll update the relation
-      if (updatePurchaseOrderDto.supplierId) {
-        const supplier = await this.supplierRepo.findOneBy({ id: updatePurchaseOrderDto.supplierId });
-        if (!supplier) {
-          throw new NotFoundException('Supplier not found');
-        }
-        purchaseOrder.supplier = supplier;
-      } else {
-        // If supplierId is null/empty string, we could set supplier to null
-        // purchaseOrder.supplier = null;
+  async update(
+    id: string,
+    updatePurchaseOrderDto: UpdatePurchaseOrderDto,
+    companyId: string,
+  ) {
+    // A confirmed or received order is a commitment to the supplier and the
+    // source of stock that already moved — it must not change underneath.
+    const purchaseOrder = await this.ensureIsDraft(id, companyId);
+
+    if (updatePurchaseOrderDto.supplierId) {
+      const supplierExists = await this.supplierRepo.existsBy({
+        id: updatePurchaseOrderDto.supplierId,
+        companyId,
+      });
+
+      if (!supplierExists) {
+        throw new NotFoundException('Supplier not found');
       }
-      // Remove supplierId from updatePurchaseOrderDto so Object.assign doesn't overwrite our relation handling
-      delete updatePurchaseOrderDto.supplierId;
     }
 
     Object.assign(purchaseOrder, updatePurchaseOrderDto);
-    return this.purchaseOrderRepo.save(purchaseOrder);
+
+    return await this.purchaseOrderRepo.save(purchaseOrder);
   }
 
-  async remove(id: string) {
-    const purchaseOrder = await this.findOne(id);
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
+  async remove(id: string, companyId: string) {
+    const purchaseOrder = await this.findOne(id, companyId);
+
+    // A received order is the reason stock exists in the warehouse. Deleting
+    // it would break the audit trail that the stock movements point back to.
+    if (purchaseOrder.status === PurchaseOrderStatus.RECEIVED) {
+      throw new BadRequestException(
+        'A received purchase order cannot be deleted. Keep it for the stock history.',
+      );
     }
-    return this.purchaseOrderRepo.remove(purchaseOrder);
+
+    return await this.purchaseOrderRepo.remove(purchaseOrder);
+  }
+
+  async confirm(id: string, companyId: string): Promise<PurchaseOrder> {
+    const purchaseOrder = await this.findOne(id, companyId);
+
+    if (purchaseOrder.status !== PurchaseOrderStatus.DRAFT) {
+      throw new BadRequestException(
+        'Only draft purchase orders can be confirmed.',
+      );
+    }
+
+    if (purchaseOrder.items.length === 0) {
+      throw new BadRequestException(
+        'Purchase order must contain at least one item.',
+      );
+    }
+
+    purchaseOrder.status = PurchaseOrderStatus.CONFIRMED;
+
+    return await this.purchaseOrderRepo.save(purchaseOrder);
+  }
+
+  async cancel(id: string, companyId: string): Promise<PurchaseOrder> {
+    const purchaseOrder = await this.findOne(id, companyId);
+
+    if (purchaseOrder.status === PurchaseOrderStatus.RECEIVED) {
+      throw new BadRequestException(
+        'A received purchase order cannot be cancelled.',
+      );
+    }
+
+    if (purchaseOrder.status === PurchaseOrderStatus.CANCELLED) {
+      throw new BadRequestException('Purchase order is already cancelled.');
+    }
+
+    purchaseOrder.status = PurchaseOrderStatus.CANCELLED;
+
+    return await this.purchaseOrderRepo.save(purchaseOrder);
+  }
+
+  /**
+   * Receives a confirmed order into a warehouse.
+   *
+   * Everything happens in one transaction: each item raises the stock, each
+   * one writes a stock movement, and the order moves to RECEIVED. If any item
+   * fails, the whole receipt rolls back — stock never ends up half-updated.
+   *
+   * The stock itself is changed through `InventoriesService.applyMovement`,
+   * which locks the stock row, so two receipts arriving together cannot
+   * overwrite each other.
+   */
+  async receive(
+    id: string,
+    warehouseId: string,
+    companyId: string,
+  ): Promise<PurchaseOrder> {
+    const purchaseOrder = await this.findOne(id, companyId);
+
+    if (purchaseOrder.status !== PurchaseOrderStatus.CONFIRMED) {
+      throw new BadRequestException(
+        'Only confirmed purchase orders can be received.',
+      );
+    }
+
+    if (purchaseOrder.items.length === 0) {
+      throw new BadRequestException('Purchase order contains no items.');
+    }
+
+    const warehouseExists = await this.warehouseRepo.existsBy({
+      id: warehouseId,
+      companyId,
+    });
+
+    if (!warehouseExists) {
+      throw new NotFoundException('Warehouse not found');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      for (const item of purchaseOrder.items) {
+        await this.inventoriesService.applyMovement(
+          queryRunner,
+          item.productId,
+          warehouseId,
+          companyId,
+          StockMovementType.IN,
+          item.quantity,
+        );
+
+        const movement = queryRunner.manager.create(StockMovement, {
+          productId: item.productId,
+          warehouseId,
+          companyId,
+          type: StockMovementType.IN,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          referenceType: StockMovementReferenceType.PURCHASE_ORDER,
+          referenceId: purchaseOrder.id,
+        });
+
+        await queryRunner.manager.save(movement);
+      }
+
+      purchaseOrder.status = PurchaseOrderStatus.RECEIVED;
+
+      await queryRunner.manager.save(purchaseOrder);
+
+      await queryRunner.commitTransaction();
+
+      return purchaseOrder;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

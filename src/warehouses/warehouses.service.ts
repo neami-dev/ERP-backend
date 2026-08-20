@@ -1,36 +1,42 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Not, Repository } from 'typeorm';
+
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
-import { InjectRepository } from '@nestjs/typeorm';
 import { Warehouse } from './entities/warehouse.entity';
-import { Repository } from 'typeorm';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 
+/**
+ * Every method takes the `companyId` of the caller, read from their JWT,
+ * so a user can only ever see and touch the warehouses of their own company.
+ */
 @Injectable()
 export class WarehousesService {
-  constructor(@InjectRepository(Warehouse) private readonly warehouseRepo: Repository<Warehouse>) { }
-  async create(createWarehouseDto: CreateWarehouseDto) {
-    const existingWarehouse = await this.warehouseRepo.existsBy(
-      { name: createWarehouseDto.name }
-    );
-    if (existingWarehouse) {
-      throw new ConflictException('Warehouse already exists');
-    }
+  constructor(
+    @InjectRepository(Warehouse)
+    private readonly warehouseRepo: Repository<Warehouse>,
+  ) { }
+
+  async create(createWarehouseDto: CreateWarehouseDto, companyId: string) {
+    await this.assertNameIsFree(createWarehouseDto.name, companyId);
 
     const warehouse = this.warehouseRepo.create({
-      name: createWarehouseDto.name,
-      address: createWarehouseDto.address,
+      ...createWarehouseDto,
+      companyId,
     });
-    return this.warehouseRepo.save(warehouse);
+
+    return await this.warehouseRepo.save(warehouse);
   }
 
-  async findAll(query: PaginationDto) {
+  async findAll(query: PaginationDto, companyId: string) {
     const { page, limit } = query;
 
-    const skip = (page - 1) * limit;
     const [warehouses, total] = await this.warehouseRepo.findAndCount({
-      skip,
+      where: { companyId },
+      skip: (page - 1) * limit,
       take: limit,
+      order: { createdAt: 'DESC' },
     });
 
     return {
@@ -39,41 +45,59 @@ export class WarehousesService {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 
-  async findOne(id: string) {
-    const warehouse = await this.warehouseRepo.findOneBy({ id });
+  async findOne(id: string, companyId: string) {
+    const warehouse = await this.warehouseRepo.findOneBy({ id, companyId });
+
     if (!warehouse) {
       throw new NotFoundException('Warehouse not found');
     }
+
     return warehouse;
   }
 
-  async update(id: string, updateWarehouseDto: UpdateWarehouseDto) {
+  async update(
+    id: string,
+    updateWarehouseDto: UpdateWarehouseDto,
+    companyId: string,
+  ) {
+    const warehouse = await this.findOne(id, companyId);
 
-    if (updateWarehouseDto?.name) {
-      const existingWarehouse = await this.warehouseRepo.existsBy(
-        { name: updateWarehouseDto.name }
-      );
-      if (existingWarehouse) {
-        throw new ConflictException('Warehouse already exists');
-      }
+    if (updateWarehouseDto.name) {
+      await this.assertNameIsFree(updateWarehouseDto.name, companyId, id);
     }
-
-    const warehouse = await this.findOne(id);
 
     Object.assign(warehouse, updateWarehouseDto);
-    return this.warehouseRepo.save(warehouse);
+
+    return await this.warehouseRepo.save(warehouse);
   }
 
-  async remove(id: string) {
-    const warehouse = await this.findOne(id);
-    if (!warehouse) {
-      throw new NotFoundException('Warehouse not found');
+  async remove(id: string, companyId: string) {
+    const warehouse = await this.findOne(id, companyId);
+
+    return await this.warehouseRepo.remove(warehouse);
+  }
+
+  /**
+   * @param ignoreId Warehouse being updated, so it does not clash with itself.
+   */
+  private async assertNameIsFree(
+    name: string,
+    companyId: string,
+    ignoreId?: string,
+  ) {
+    const taken = await this.warehouseRepo.existsBy({
+      name,
+      companyId,
+      ...(ignoreId && { id: Not(ignoreId) }),
+    });
+
+    if (taken) {
+      throw new ConflictException('Warehouse already exists');
     }
-    return this.warehouseRepo.remove(warehouse);
   }
 }

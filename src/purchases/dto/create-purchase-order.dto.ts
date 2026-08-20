@@ -18,13 +18,8 @@ export class CreatePurchaseOrderDto {
   supplierId: string;
 
 
-  @ApiProperty({
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    description: 'The ID of the company.',
-  })
-  @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  // The company is never taken from the request body — it is read from the
+  // JWT of the caller, so a user cannot create an order inside another company.
 
   @ApiProperty({
     example: '2024-01-25',

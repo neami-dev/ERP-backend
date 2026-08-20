@@ -14,42 +14,56 @@ import { InventoriesService } from './inventories.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 
 @ApiTags('inventories')
 @Controller('inventories')
 export class InventoriesController {
-  constructor(private readonly inventoriesService: InventoriesService) {}
+  constructor(private readonly inventoriesService: InventoriesService) { }
 
   @Post()
-  @ApiOperation({ summary: 'Create an inventory record' })
-  create(@Body() createInventoryDto: CreateInventoryDto) {
-    return this.inventoriesService.create(createInventoryDto);
+  @ApiOperation({ summary: 'Create an inventory record for the current company' })
+  create(
+    @Body() createInventoryDto: CreateInventoryDto,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.inventoriesService.create(createInventoryDto, companyId);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all inventory records' })
-  findAll(@Query() query: PaginationDto) {
-    return this.inventoriesService.findAll(query);
+  @ApiOperation({ summary: 'Get the inventory records of the current company' })
+  findAll(
+    @Query() query: PaginationDto,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.inventoriesService.findAll(query, companyId);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get an inventory record by ID' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.inventoriesService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.inventoriesService.findOne(id, companyId);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update an inventory record by ID' })
+  @ApiOperation({ summary: 'Correct the counted quantities of an inventory record' })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateInventoryDto: UpdateInventoryDto,
+    @CurrentUser('companyId') companyId: string,
   ) {
-    return this.inventoriesService.update(id, updateInventoryDto);
+    return this.inventoriesService.update(id, updateInventoryDto, companyId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete an inventory record by ID' })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.inventoriesService.remove(id);
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.inventoriesService.remove(id, companyId);
   }
 }
