@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
     IsEnum,
     IsInt,
@@ -28,13 +28,8 @@ export class CreateStockMovementDto {
     @IsNotEmpty()
     warehouseId: string;
 
-    @ApiProperty({
-        example: '550e8400-e29b-41d4-a716-446655440003',
-        description: 'The ID of the company.',
-    })
-    @IsUUID()
-    @IsNotEmpty()
-   companyId: string;
+    // The company is never taken from the request body — it is read from the
+    // JWT of the caller, so a user cannot move stock inside another company.
 
     @ApiProperty({
         enum: StockMovementType,
@@ -46,11 +41,12 @@ export class CreateStockMovementDto {
 
     @ApiProperty({
         example: 25,
-        description: 'The quantity moved.',
-        minimum: 1,
+        description:
+            'The quantity moved. Must be positive for IN, OUT, RESERVE and ' +
+            'RELEASE. An ADJUSTMENT may be negative, to correct a count downwards.',
     })
     @IsInt()
-    @Min(1)
+    @IsNotEmpty()
     quantity: number;
 
     @ApiProperty({
@@ -70,13 +66,15 @@ export class CreateStockMovementDto {
     @IsEnum(StockMovementReferenceType)
     referenceType: StockMovementReferenceType;
 
-    @ApiProperty({
+    @ApiPropertyOptional({
         example: '550e8400-e29b-41d4-a716-446655440002',
-        description: 'The source document ID.',
+        description:
+            'The source document ID. Required for every reference type except ' +
+            'ADJUSTMENT, which is a manual correction with no source document.',
     })
+    @IsOptional()
     @IsUUID()
-    @IsNotEmpty()
-    referenceId: string;
+    referenceId?: string;
 
     @ApiProperty({
         example: 'Initial stock received.',

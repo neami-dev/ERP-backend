@@ -202,7 +202,7 @@ Also set `persistAuthorization: true` so the token survives a page reload.
 | purchases | ✅ | ✅ done | 8 fixes; race condition **proven** then fixed |
 | stock-movements | ✅ | ⬜ | `companyId` in DTO, new module |
 | companies | n/a | ✅ done | **worst leak of all**, see below |
-| stock-movements | ✅ | ⬜ | decimal fixed; response shape differs |
+| stock-movements | ✅ | ✅ done | + 2 design bugs, see below |
 
 ### Suppliers — bugs found and fixed
 
@@ -270,6 +270,53 @@ Nobody noticed because there are no tests and the route was never called with au
   the purchasing flow passes its `companyId` through.
 - Also: `description` was `@IsNotEmpty()` in the DTO but nullable in the entity — made
   optional so the two agree.
+
+### Stock movements — bugs found and fixed
+
+**SM1 — the last open leak.** `companyId` came from the request body, `findAll()`
+returned **every movement of every company** with no filter, and `findOne` had no
+company check. The controller had no `@CurrentUser` at all. All scoped now.
+
+**SM2 — product and warehouse were not company-checked** before the movement was
+applied, so stock could be moved between companies.
+
+**SM3 — a negative ADJUSTMENT was impossible.** 🔴 *two parts of the code disagreed.*
+`InventoriesService.applyMovement` explicitly supports a negative ADJUSTMENT
+("can be positive (correction) or negative"), but the DTO said `@Min(1)` and the
+service refused `quantity <= 0` for **every** type. So the downward stock correction
+the inventory code was written for could never reach it.
+Now: ADJUSTMENT may be negative (but not zero); every other type still requires a
+positive quantity.
+
+**SM4 — a manual adjustment could not be recorded at all.** `referenceId` was required
+and `NOT NULL`, but a stock-count correction has **no source document**. You had to
+invent a UUID to record one. `referenceId` is now nullable, required for every
+reference type except ADJUSTMENT.
+
+**SM5 — the response shape did not match the rest of the API.** `GET /stock-movements`
+returned a plain array while every other list returns `{data, meta}`, and it had no
+pagination — the whole stock history in one response, growing forever.
+
+**SM6 — no filters.** A stock history screen needs to filter by product, warehouse and
+type. Added `StockMovementQueryDto`.
+
+**SM7 — no Swagger tags or descriptions** on the controller.
+
+No PATCH or DELETE was added, on purpose: movements are the audit trail. A wrong
+movement is corrected by recording an ADJUSTMENT, never by rewriting history.
+
+### Stock movements test — all pass
+
+| Test | Expected | Got |
+|---|---|---|
+| response shape (SM5) | `{data, meta}` | ✅ |
+| B sees A's movements | 0 rows | ✅ |
+| negative ADJUSTMENT, no referenceId (SM3, SM4) | created, stock 145 → 140 | ✅ |
+| IN without referenceId | 400 | ✅ |
+| A moves stock in B's warehouse (SM2) | 404 | ✅ |
+| `companyId` in body (SM1) | 400 | ✅ |
+| filter by `type=IN` (SM6) | only IN rows | ✅ |
+| OUT more than available | 409 | ✅ |
 
 ### Companies — the tenant table was wide open 🔴
 

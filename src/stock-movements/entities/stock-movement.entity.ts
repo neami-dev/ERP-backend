@@ -107,11 +107,13 @@ export class StockMovement {
   })
   referenceType: StockMovementReferenceType;
 
+  /** Null only for a manual ADJUSTMENT, which has no source document. */
   @Column({
     name: 'reference_id',
     type: 'uuid',
+    nullable: true,
   })
-  referenceId: string;
+  referenceId: string | null;
 
   @Column({
     type: 'text',
