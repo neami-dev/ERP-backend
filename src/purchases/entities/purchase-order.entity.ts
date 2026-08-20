@@ -44,11 +44,24 @@ export class PurchaseOrder {
   })
   status: PurchaseOrderStatus;
 
+  /**
+   * Calendar date, `YYYY-MM-DD`. Deliberately **not** a timestamp: the day an
+   * order was placed has no meaningful time of day, and storing one would
+   * shift the date across timezones.
+   *
+   * Typed as `string` because that is what a Postgres `date` column really
+   * returns — calling it a `Date` was a lie the compiler could not catch.
+   *
+   * On the client, do not do `new Date("2026-08-20")`: that parses as UTC
+   * midnight and shows the previous day west of UTC. Keep it as a string, or
+   * split it into parts before building a Date.
+   */
   @Column({ name: "order_date", type: 'date' })
-  orderDate: Date;
+  orderDate: string;
 
+  /** Calendar date, `YYYY-MM-DD`. See {@link orderDate}. */
   @Column({ name: "expected_date", type: 'date', nullable: true })
-  expectedDate?: Date;
+  expectedDate?: string | null;
 
   @Column({ type: 'text', nullable: true })
   notes?: string;

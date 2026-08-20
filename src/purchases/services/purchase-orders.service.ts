@@ -17,6 +17,7 @@ import {
   StockMovementType,
 } from 'src/stock-movements/entities/stock-movement.entity';
 import { InventoriesService } from 'src/inventories/inventories.service';
+import { today } from 'src/common/utils/calendar-date';
 
 /**
  * Every method takes the `companyId` of the caller, read from their JWT, so an
@@ -79,7 +80,7 @@ export class PurchaseOrdersService {
         ...createPurchaseOrderDto,
         companyId,
         orderNumber,
-        orderDate: new Date(),
+        orderDate: today(),
       });
 
       await queryRunner.manager.save(purchaseOrder);
