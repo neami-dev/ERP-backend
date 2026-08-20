@@ -1,11 +1,13 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseUUIDPipe } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { Category } from './entities/category.entity';
 
 @ApiTags('categories')
 @Controller('categories')
@@ -14,6 +16,7 @@ export class CategoriesController {
 
   @Post()
   @ApiOperation({ summary: 'Create a category for the current company' })
+  @ApiCreatedResponse({ type: Category })
   create(
     @Body() createCategoryDto: CreateCategoryDto,
     @CurrentUser('companyId') companyId: string,
@@ -23,6 +26,7 @@ export class CategoriesController {
 
   @Get()
   @ApiOperation({ summary: 'Get the categories of the current company' })
+  @ApiPaginatedResponse(Category)
   findAll(
     @Query() query: PaginationDto,
     @CurrentUser('companyId') companyId: string,
@@ -32,6 +36,7 @@ export class CategoriesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a category by ID' })
+  @ApiOkResponse({ type: Category })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -41,6 +46,7 @@ export class CategoriesController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a category by ID' })
+  @ApiOkResponse({ type: Category })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateCategoryDto: UpdateCategoryDto,
@@ -51,6 +57,7 @@ export class CategoriesController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a category by ID' })
+  @ApiOkResponse({ type: Category })
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,

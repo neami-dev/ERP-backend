@@ -6,11 +6,12 @@ import {
   ParseUUIDPipe,
   Patch,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CompaniesService } from './companies.service';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { Company } from './entities/company.entity';
 
 /**
  * There is no POST here: a company is created only by `POST /auth/signup`,
@@ -32,6 +33,7 @@ export class CompaniesController {
   @ApiOperation({
     summary: 'Get the company of the current user',
   })
+  @ApiOkResponse({ type: Company })
   findMine(@CurrentUser('companyId') companyId: string) {
     return this.companiesService.findMine(companyId);
   }
@@ -40,6 +42,7 @@ export class CompaniesController {
   @ApiOperation({
     summary: 'Get a company by ID (your own company only)',
   })
+  @ApiOkResponse({ type: Company })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -51,6 +54,7 @@ export class CompaniesController {
   @ApiOperation({
     summary: 'Update a company by ID (your own company only)',
   })
+  @ApiOkResponse({ type: Company })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateCompanyDto: UpdateCompanyDto,

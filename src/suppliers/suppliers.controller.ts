@@ -1,11 +1,13 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseUUIDPipe } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { SuppliersService } from './suppliers.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { Supplier } from './entities/supplier.entity';
 
 @ApiTags('suppliers')
 @Controller('suppliers')
@@ -13,9 +15,8 @@ export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) { }
 
   @Post()
-  @ApiOperation({
-    summary: 'Create a supplier for the current company',
-  })
+  @ApiOperation({ summary: 'Create a supplier for the current company' })
+  @ApiCreatedResponse({ type: Supplier })
   create(
     @Body() createSupplierDto: CreateSupplierDto,
     @CurrentUser('companyId') companyId: string,
@@ -24,9 +25,8 @@ export class SuppliersController {
   }
 
   @Get()
-  @ApiOperation({
-    summary: 'Get the suppliers of the current company',
-  })
+  @ApiOperation({ summary: 'Get the suppliers of the current company' })
+  @ApiPaginatedResponse(Supplier)
   findAll(
     @Query() query: PaginationDto,
     @CurrentUser('companyId') companyId: string,
@@ -35,9 +35,8 @@ export class SuppliersController {
   }
 
   @Get(':id')
-  @ApiOperation({
-    summary: 'Get a supplier by ID',
-  })
+  @ApiOperation({ summary: 'Get a supplier by ID' })
+  @ApiOkResponse({ type: Supplier })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -46,9 +45,8 @@ export class SuppliersController {
   }
 
   @Patch(':id')
-  @ApiOperation({
-    summary: 'Update a supplier by ID',
-  })
+  @ApiOperation({ summary: 'Update a supplier by ID' })
+  @ApiOkResponse({ type: Supplier })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateSupplierDto: UpdateSupplierDto,
@@ -58,9 +56,8 @@ export class SuppliersController {
   }
 
   @Delete(':id')
-  @ApiOperation({
-    summary: 'Delete a supplier by ID',
-  })
+  @ApiOperation({ summary: 'Delete a supplier by ID' })
+  @ApiOkResponse({ type: Supplier })
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,

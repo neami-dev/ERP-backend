@@ -9,7 +9,7 @@ import {
   Query,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { PurchaseOrdersService } from './services/purchase-orders.service';
 import { PurchaseOrderItemsService } from './services/purchase-order-items.service';
@@ -20,6 +20,9 @@ import { UpdatePurchaseOrderItemDto } from './dto/update-purchase-order-item.dto
 import { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { PurchaseOrder } from './entities/purchase-order.entity';
+import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 
 @ApiTags('purchases')
 @Controller('purchases')
@@ -35,6 +38,7 @@ export class PurchasesController {
 
   @Post()
   @ApiOperation({ summary: 'Create a purchase order for the current company' })
+  @ApiCreatedResponse({ type: PurchaseOrder })
   create(
     @Body() createPurchaseOrderDto: CreatePurchaseOrderDto,
     @CurrentUser('companyId') companyId: string,
@@ -44,6 +48,7 @@ export class PurchasesController {
 
   @Get()
   @ApiOperation({ summary: 'Get the purchase orders of the current company' })
+  @ApiPaginatedResponse(PurchaseOrder)
   findAll(
     @Query() query: PaginationDto,
     @CurrentUser('companyId') companyId: string,
@@ -53,6 +58,7 @@ export class PurchasesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a purchase order by ID' })
+  @ApiOkResponse({ type: PurchaseOrder })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -62,6 +68,7 @@ export class PurchasesController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a draft purchase order by ID' })
+  @ApiOkResponse({ type: PurchaseOrder })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updatePurchaseOrderDto: UpdatePurchaseOrderDto,
@@ -76,6 +83,7 @@ export class PurchasesController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a purchase order by ID' })
+  @ApiOkResponse({ type: PurchaseOrder })
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -85,6 +93,7 @@ export class PurchasesController {
 
   @Patch(':id/confirm')
   @ApiOperation({ summary: 'Confirm a draft purchase order' })
+  @ApiOkResponse({ type: PurchaseOrder })
   confirm(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -94,6 +103,7 @@ export class PurchasesController {
 
   @Patch(':id/cancel')
   @ApiOperation({ summary: 'Cancel a purchase order' })
+  @ApiOkResponse({ type: PurchaseOrder })
   cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -105,6 +115,7 @@ export class PurchasesController {
   @ApiOperation({
     summary: 'Receive a confirmed purchase order into inventory',
   })
+  @ApiOkResponse({ type: PurchaseOrder })
   receive(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() receivePurchaseOrderDto: ReceivePurchaseOrderDto,
@@ -123,6 +134,7 @@ export class PurchasesController {
 
   @Post(':purchaseOrderId/items')
   @ApiOperation({ summary: 'Add an item to a draft purchase order' })
+  @ApiCreatedResponse({ type: PurchaseOrderItem })
   addItem(
     @Param('purchaseOrderId', ParseUUIDPipe) purchaseOrderId: string,
     @Body() createPurchaseOrderItemDto: CreatePurchaseOrderItemDto,
@@ -137,6 +149,7 @@ export class PurchasesController {
 
   @Patch(':purchaseOrderId/items/:itemId')
   @ApiOperation({ summary: 'Update an item of a draft purchase order' })
+  @ApiOkResponse({ type: PurchaseOrderItem })
   updateItem(
     @Param('purchaseOrderId', ParseUUIDPipe) purchaseOrderId: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,
@@ -153,6 +166,7 @@ export class PurchasesController {
 
   @Delete(':purchaseOrderId/items/:itemId')
   @ApiOperation({ summary: 'Remove an item from a draft purchase order' })
+  @ApiOkResponse({ type: PurchaseOrderItem })
   removeItem(
     @Param('purchaseOrderId', ParseUUIDPipe) purchaseOrderId: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,

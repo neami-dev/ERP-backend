@@ -1,11 +1,13 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, ParseUUIDPipe, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { Product } from './entities/product.entity';
 
 @ApiTags('products')
 @Controller('products')
@@ -14,6 +16,7 @@ export class ProductsController {
 
   @Post()
   @ApiOperation({ summary: 'Create a product for the current company' })
+  @ApiCreatedResponse({ type: Product })
   create(
     @Body() createProductDto: CreateProductDto,
     @CurrentUser('companyId') companyId: string,
@@ -23,6 +26,7 @@ export class ProductsController {
 
   @Get()
   @ApiOperation({ summary: 'Get the products of the current company' })
+  @ApiPaginatedResponse(Product)
   findAll(
     @Query() query: ProductQueryDto,
     @CurrentUser('companyId') companyId: string,
@@ -32,6 +36,7 @@ export class ProductsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a product by ID' })
+  @ApiOkResponse({ type: Product })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
@@ -41,6 +46,7 @@ export class ProductsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a product by ID' })
+  @ApiOkResponse({ type: Product })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateProductDto: UpdateProductDto,
@@ -51,6 +57,7 @@ export class ProductsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a product by ID' })
+  @ApiOkResponse({ type: Product })
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,

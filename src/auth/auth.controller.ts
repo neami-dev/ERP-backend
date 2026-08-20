@@ -7,12 +7,13 @@ import {
   Get,
   Request,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AuthService } from './auth.service';
 import { SignUpDto } from './dto/sign-up.dto';
 import { SignInDto } from './dto/sign-in.dto';
 import { Public } from './decorators/public.decorator';
+import { AuthResponseDto, JwtPayloadDto } from './dto/auth-response.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -24,6 +25,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Create a new company and its first user',
   })
+  @ApiCreatedResponse({ type: AuthResponseDto })
   signUp(@Body() signUpDto: SignUpDto) {
     return this.authService.signUp(signUpDto);
   }
@@ -32,6 +34,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('login')
   @ApiOperation({ summary: 'Sign in with email and password' })
+  @ApiOkResponse({ type: AuthResponseDto })
   signIn(@Body() signInDto: SignInDto) {
     return this.authService.signIn(signInDto);
   }
@@ -39,6 +42,7 @@ export class AuthController {
   @Get('profile')
   @ApiBearerAuth('access_token')
   @ApiOperation({ summary: 'Return the JWT payload of the current user' })
+  @ApiOkResponse({ type: JwtPayloadDto })
   getProfile(@Request() req) {
     return req.user;
   }

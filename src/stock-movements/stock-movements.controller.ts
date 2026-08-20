@@ -1,10 +1,12 @@
 import { Controller, Get, Post, Body, Param, ParseUUIDPipe, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { StockMovementsService } from './stock-movements.service';
 import { CreateStockMovementDto } from './dto/create-stock-movement.dto';
 import { StockMovementQueryDto } from './dto/stock-movement-query.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { StockMovement } from './entities/stock-movement.entity';
 
 /**
  * There is no PATCH or DELETE here on purpose: movements are the stock audit
@@ -20,6 +22,7 @@ export class StockMovementsController {
   @ApiOperation({
     summary: 'Record a stock movement and apply it to inventory',
   })
+  @ApiCreatedResponse({ type: StockMovement })
   create(
     @Body() createStockMovementDto: CreateStockMovementDto,
     @CurrentUser('companyId') companyId: string,
@@ -31,6 +34,7 @@ export class StockMovementsController {
   @ApiOperation({
     summary: 'Get the stock movements of the current company',
   })
+  @ApiPaginatedResponse(StockMovement)
   findAll(
     @Query() query: StockMovementQueryDto,
     @CurrentUser('companyId') companyId: string,
@@ -40,6 +44,7 @@ export class StockMovementsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a stock movement by ID' })
+  @ApiOkResponse({ type: StockMovement })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('companyId') companyId: string,
