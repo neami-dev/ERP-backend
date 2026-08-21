@@ -5,14 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Not, QueryFailedError, Repository } from 'typeorm';
+import { EntityManager, Not, Repository } from 'typeorm';
 
 import { Company } from './entities/company.entity';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { DocumentNumberService } from 'src/common/ document-number/document-number.service';
-
-/** Postgres error code for a violated unique constraint. */
-const UNIQUE_VIOLATION = '23505';
+import { isUniqueViolation } from 'src/common/database/postgres-errors';
 
 /**
  * A company is the tenant itself, so this service is scoped differently from
@@ -135,10 +133,7 @@ export class CompaniesService {
    * so both paths look identical to the client.
    */
   private rethrowDuplicateNameAsConflict(error: unknown): never {
-    if (
-      error instanceof QueryFailedError &&
-      (error.driverError as { code?: string })?.code === UNIQUE_VIOLATION
-    ) {
+    if (isUniqueViolation(error)) {
       throw new ConflictException('Company with this name already exists');
     }
 
