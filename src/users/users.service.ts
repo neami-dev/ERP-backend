@@ -1,25 +1,102 @@
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { EntityManager, QueryFailedError, Repository } from 'typeorm';
 
-import { Injectable } from '@nestjs/common';
+import { User } from './entities/user.entity';
 
-// This should be a real class/interface representing a user entity
-export type User = any;
+/** Postgres error code for a violated unique constraint. */
+const UNIQUE_VIOLATION = '23505';
+
+export interface CreateUserData {
+  email: string;
+  /** Already hashed — this service never sees a plain password. */
+  password: string;
+  firstName: string;
+  lastName?: string;
+  companyId: string;
+}
 
 @Injectable()
 export class UsersService {
-  private readonly users = [
-    {
-      userId: 1,
-      username: 'john',
-      password: 'changeme',
-    },
-    {
-      userId: 2,
-      username: 'maria',
-      password: 'guess',
-    },
-  ];
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) { }
 
-  async findOne(username: string): Promise<User | undefined> {
-    return this.users.find(user => user.username === username);
+  /**
+   * Creates a user.
+   *
+   * Every method here takes an optional `manager`, the same way
+   * `DocumentNumberService` does. Pass a transaction's `EntityManager` and the
+   * write joins that transaction; omit it and it runs on its own.
+   *
+   * Without this, signup could not use the service at all: the injected
+   * repository is bound to the default connection, so a user created through
+   * it would be committed immediately and would survive a rollback of the
+   * company it belongs to.
+   */
+  async create(
+    data: CreateUserData,
+    manager?: EntityManager,
+  ): Promise<User> {
+    const repo = this.repo(manager);
+    const user = repo.create(data);
+
+    try {
+      return await repo.save(user);
+    } catch (error) {
+      // Checking "does this email exist" first still leaves a gap: two signups
+      // racing each other both pass the check, then one insert loses. The
+      // constraint is the real guarantee, so the error it raises is turned
+      // into the same 409 the pre-check would have produced.
+      if (
+        error instanceof QueryFailedError &&
+        (error.driverError as { code?: string })?.code === UNIQUE_VIOLATION
+      ) {
+        throw new ConflictException('A user with this email already exists');
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Finds a user by email, including the password hash.
+   *
+   * The password column is `select: false`, so it is pulled in explicitly
+   * here. Use this only for authentication — never to build an API response.
+   */
+  async findByEmailWithPassword(email: string): Promise<User | null> {
+    return await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.email = :email', { email })
+      .getOne();
+  }
+
+  async existsByEmail(email: string, manager?: EntityManager): Promise<boolean> {
+    return await this.repo(manager).existsBy({ email });
+  }
+
+  async findOne(id: string): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { id },
+      relations: { company: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user;
+  }
+
+  async findAllByCompany(companyId: string): Promise<User[]> {
+    return await this.userRepository.findBy({ companyId });
+  }
+
+  /** The caller's transaction if there is one, otherwise the default connection. */
+  private repo(manager?: EntityManager): Repository<User> {
+    return manager ? manager.getRepository(User) : this.userRepository;
   }
 }

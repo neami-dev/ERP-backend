@@ -3,7 +3,7 @@ import { IsInt, IsNotEmpty, IsNumber, IsUUID, Min } from 'class-validator';
 
 export class CreatePurchaseOrderItemDto {
   @ApiProperty({
-    example: 1,
+    example: 'f5b71129-48ef-4993-8684-fe178352c1c9',
     description: 'Product ID',
   })
   @IsUUID()
@@ -26,5 +26,5 @@ export class CreatePurchaseOrderItemDto {
   @IsNumber()
   @IsNotEmpty()
   @Min(0)
-  unitCost: number; 
+  unitCost: number;
 }

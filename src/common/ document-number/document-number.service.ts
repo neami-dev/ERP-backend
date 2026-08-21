@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, QueryRunner, EntityManager } from 'typeorm';
 
 import { DocumentSequence } from './document-sequence.entity';
-import { DocumentType } from './document-type.enum';
+import { DOCUMENT_TYPE_PREFIX, DocumentType } from './document-type.enum';
 
 @Injectable()
 export class DocumentNumberService {
@@ -74,22 +74,24 @@ export class DocumentNumberService {
     return `${sequence.prefix}-${year}-${number}`;
   }
 
+  /**
+   * Creates one sequence per document type for a brand new company.
+   *
+   * Every value of {@link DocumentType} gets a sequence, not just the ones in
+   * use today: a type with no sequence row makes `generate` throw 404 the
+   * first time that document is ever created, which would surface as a broken
+   * feature long after the company was set up.
+   */
   async createDefaultSequences(
     companyId: string,
     manager: EntityManager,
   ) {
-    const documentTypes = [
-      DocumentType.PURCHASE_ORDER,
-      DocumentType.SALES_ORDER,
-      DocumentType.INVOICE,
-    ];
-
-    const sequences = documentTypes.map((type) =>
+    const sequences = Object.values(DocumentType).map((type) =>
       manager.create(DocumentSequence, {
         company_id: companyId,
         documentType: type,
         currentNumber: 0,
-        prefix: type.charAt(0),
+        prefix: DOCUMENT_TYPE_PREFIX[type],
         padding: 6,
       }),
     );

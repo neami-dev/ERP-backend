@@ -13,7 +13,10 @@ import { PurchaseOrder } from 'src/purchases/entities/purchase-order.entity';
 import { Company } from 'src/companies/entities/company.entity';
 
 @Entity('suppliers')
-@Unique(['email'])
+// Scoped to the company: two different companies may each have a supplier
+// with the same name or email.
+@Unique(['company', 'email'])
+@Unique(['company', 'name'])
 export class Supplier {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -47,12 +50,12 @@ export class Supplier {
   })
   isActive: boolean;
 
-  @ManyToOne(() => Company, (company) => company.suppliers)
+  @ManyToOne(() => Company, (company) => company.suppliers, { nullable: false })
   @JoinColumn({ name: 'company_id' })
   company: Company;
 
-  @Column('uuid')
-  company_id: string;
+  @Column({ name: 'company_id' })
+  companyId: string;
 
   @OneToMany(() => PurchaseOrder, (purchaseOrder) => purchaseOrder.supplier)
   purchaseOrders: PurchaseOrder[]; 

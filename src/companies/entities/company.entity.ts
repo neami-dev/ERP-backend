@@ -10,6 +10,7 @@ import {
 import { Supplier } from 'src/suppliers/entities/supplier.entity';
 import { PurchaseOrder } from 'src/purchases/entities/purchase-order.entity';
 import { DocumentSequence } from 'src/common/ document-number/document-sequence.entity';
+import { User } from 'src/users/entities/user.entity';
 
 @Entity('companies')
 export class Company {
@@ -39,6 +40,9 @@ export class Company {
 
   @OneToMany(() => DocumentSequence, (sequence) => sequence.company)
   documentSequences: DocumentSequence[];
+
+  @OneToMany(() => User, (user) => user.company)
+  users: User[];
 
   @CreateDateColumn()
   createdAt: Date;

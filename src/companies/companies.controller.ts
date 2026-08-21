@@ -1,19 +1,24 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   Param,
   ParseUUIDPipe,
   Patch,
-  Post,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CompaniesService } from './companies.service';
-import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { Company } from './entities/company.entity';
 
+/**
+ * There is no POST here: a company is created only by `POST /auth/signup`,
+ * together with its first user and its document sequences. There is no DELETE
+ * either — removing a company means removing a whole customer's data, which is
+ * not something a single API call should be able to do.
+ */
 @ApiTags('companies')
 @Controller('companies')
 export class CompaniesController {
@@ -21,46 +26,40 @@ export class CompaniesController {
     private readonly companiesService: CompaniesService,
   ) { }
 
-  @Post()
+  // Declared before ':id' on purpose: Nest matches routes in order, so with
+  // ':id' first the literal "me" would be parsed as an id and ParseUUIDPipe
+  // would answer 400.
+  @Get('me')
   @ApiOperation({
-    summary: 'Create a company',
+    summary: 'Get the company of the current user',
   })
-  create(@Body() createCompanyDto: CreateCompanyDto) {
-    return this.companiesService.create(createCompanyDto);
-  }
-
-  @Get()
-  @ApiOperation({
-    summary: 'Get all companies',
-  })
-  findAll() {
-    return this.companiesService.findAll();
+  @ApiOkResponse({ type: Company })
+  findMine(@CurrentUser('companyId') companyId: string) {
+    return this.companiesService.findMine(companyId);
   }
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Get a company by ID',
+    summary: 'Get a company by ID (your own company only)',
   })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.companiesService.findOne(id);
+  @ApiOkResponse({ type: Company })
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('companyId') companyId: string,
+  ) {
+    return this.companiesService.findOne(id, companyId);
   }
 
   @Patch(':id')
   @ApiOperation({
-    summary: 'Update a company by ID',
+    summary: 'Update a company by ID (your own company only)',
   })
+  @ApiOkResponse({ type: Company })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateCompanyDto: UpdateCompanyDto,
+    @CurrentUser('companyId') companyId: string,
   ) {
-    return this.companiesService.update(id, updateCompanyDto);
-  }
-
-  @Delete(':id')
-  @ApiOperation({
-    summary: 'Delete a company by ID',
-  })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.companiesService.remove(id);
+    return this.companiesService.update(id, updateCompanyDto, companyId);
   }
 }

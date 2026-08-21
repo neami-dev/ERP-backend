@@ -1,7 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsDate,
+  IsDateString,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -18,23 +17,19 @@ export class CreatePurchaseOrderDto {
   supplierId: string;
 
 
-  @ApiProperty({
-    example: '550e8400-e29b-41d4-a716-446655440000',
-    description: 'The ID of the company.',
-  })
-  @IsUUID()
-  @IsNotEmpty()
-  companyId: string;
+  // The company is never taken from the request body — it is read from the
+  // JWT of the caller, so a user cannot create an order inside another company.
 
-  @ApiProperty({
-    example: '2024-01-25',
-    description: 'The expected delivery date.',
-    required: false,
+  @ApiPropertyOptional({
+    example: '2026-01-25',
+    format: 'date',
+    description:
+      'The expected delivery date, as a calendar date `YYYY-MM-DD`. ' +
+      'Not a timestamp — a delivery date has no time of day.',
   })
   @IsOptional()
-  @Type(() => Date)
-  @IsDate()
-  expectedDate?: Date;
+  @IsDateString({ strict: true, strictSeparator: true })
+  expectedDate?: string;
 
   @ApiProperty({
     example: 'Order for Q1 inventory',
