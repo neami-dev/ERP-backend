@@ -41,10 +41,8 @@ export class AuthService {
   async signUp(signUpDto: SignUpDto) {
     const { companyName, email, password, firstName, lastName } = signUpDto;
 
-    if (await this.usersService.existsByEmail(email)) {
-      throw new ConflictException('A user with this email already exists');
-    }
-
+    // Hashing is slow on purpose (~100ms), so it is done before the
+    // transaction opens rather than holding a database connection while it runs.
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -52,6 +50,10 @@ export class AuthService {
     await queryRunner.startTransaction();
 
     try {
+      if (await this.usersService.existsByEmail(email, queryRunner.manager)) {
+        throw new ConflictException('A user with this email already exists');
+      }
+
       const existingCompany = await queryRunner.manager.findOneBy(Company, {
         name: companyName,
       });
@@ -70,14 +72,19 @@ export class AuthService {
         queryRunner.manager,
       );
 
-      const user = queryRunner.manager.create(User, {
-        email,
-        password: passwordHash,
-        firstName,
-        lastName,
-        companyId: company.id,
-      });
-      await queryRunner.manager.save(user);
+      // Goes through UsersService, passing the transaction's manager, so the
+      // user is written by the module that owns users and still rolls back
+      // with the company if anything below fails.
+      const user = await this.usersService.create(
+        {
+          email,
+          password: passwordHash,
+          firstName,
+          lastName,
+          companyId: company.id,
+        },
+        queryRunner.manager,
+      );
 
       await queryRunner.commitTransaction();
 
