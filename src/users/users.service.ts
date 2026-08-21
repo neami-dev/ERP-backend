@@ -1,11 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, QueryFailedError, Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 
 import { User } from './entities/user.entity';
-
-/** Postgres error code for a violated unique constraint. */
-const UNIQUE_VIOLATION = '23505';
+import { isUniqueViolation } from 'src/common/database/postgres-errors';
 
 export interface CreateUserData {
   email: string;
@@ -45,14 +43,7 @@ export class UsersService {
     try {
       return await repo.save(user);
     } catch (error) {
-      // Checking "does this email exist" first still leaves a gap: two signups
-      // racing each other both pass the check, then one insert loses. The
-      // constraint is the real guarantee, so the error it raises is turned
-      // into the same 409 the pre-check would have produced.
-      if (
-        error instanceof QueryFailedError &&
-        (error.driverError as { code?: string })?.code === UNIQUE_VIOLATION
-      ) {
+      if (isUniqueViolation(error)) {
         throw new ConflictException('A user with this email already exists');
       }
 

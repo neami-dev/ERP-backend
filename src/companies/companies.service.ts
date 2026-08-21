@@ -5,10 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { EntityManager, Not, Repository } from 'typeorm';
 
 import { Company } from './entities/company.entity';
 import { UpdateCompanyDto } from './dto/update-company.dto';
+import { DocumentNumberService } from 'src/common/ document-number/document-number.service';
+import { isUniqueViolation } from 'src/common/database/postgres-errors';
 
 /**
  * A company is the tenant itself, so this service is scoped differently from
@@ -23,7 +25,38 @@ export class CompaniesService {
   constructor(
     @InjectRepository(Company)
     private readonly companyRepository: Repository<Company>,
+    private readonly documentNumberService: DocumentNumberService,
   ) { }
+
+  /**
+   * Creates a company together with its document sequences.
+   *
+   * The two are done here as one operation because a company without
+   * sequences is broken: the first purchase order, quotation or invoice it
+   * tries to number throws 404. Callers cannot create one and forget the other.
+   *
+   * Takes the caller's `EntityManager`, the same way `DocumentNumberService`
+   * does, so signup can create the company inside the transaction that also
+   * creates the first user — and a failure below rolls both back together.
+   */
+  async create(
+    data: { name: string },
+    manager: EntityManager,
+  ): Promise<Company> {
+    await this.assertNameIsFree(data.name, manager);
+
+    const company = manager.create(Company, data);
+
+    try {
+      await manager.save(company);
+    } catch (error) {
+      this.rethrowDuplicateNameAsConflict(error);
+    }
+
+    await this.documentNumberService.createDefaultSequences(company.id, manager);
+
+    return company;
+  }
 
   /** The company of the caller, taken from their token. */
   async findMine(companyId: string) {
@@ -55,19 +88,56 @@ export class CompaniesService {
     const company = await this.findMine(companyId);
 
     if (updateCompanyDto.name) {
-      const nameTaken = await this.companyRepository.existsBy({
-        name: updateCompanyDto.name,
-        id: Not(companyId),
-      });
-
-      if (nameTaken) {
-        throw new ConflictException('Company with this name already exists');
-      }
+      await this.assertNameIsFree(updateCompanyDto.name, undefined, companyId);
     }
 
     Object.assign(company, updateCompanyDto);
 
-    return await this.companyRepository.save(company);
+    try {
+      return await this.companyRepository.save(company);
+    } catch (error) {
+      this.rethrowDuplicateNameAsConflict(error);
+    }
+  }
+
+  /**
+   * Company names are unique across the system.
+   *
+   * @param manager  The caller's transaction, if there is one.
+   * @param ignoreId Company being updated, so it does not clash with itself.
+   */
+  private async assertNameIsFree(
+    name: string,
+    manager?: EntityManager,
+    ignoreId?: string,
+  ) {
+    const taken = manager
+      ? await manager.existsBy(Company, {
+        name,
+        ...(ignoreId && { id: Not(ignoreId) }),
+      })
+      : await this.companyRepository.existsBy({
+        name,
+        ...(ignoreId && { id: Not(ignoreId) }),
+      });
+
+    if (taken) {
+      throw new ConflictException('Company with this name already exists');
+    }
+  }
+
+  /**
+   * Checking the name first still leaves a gap: two requests racing each other
+   * both pass the check, then one insert loses on the unique constraint. This
+   * turns that database error into the same 409 the check would have produced,
+   * so both paths look identical to the client.
+   */
+  private rethrowDuplicateNameAsConflict(error: unknown): never {
+    if (isUniqueViolation(error)) {
+      throw new ConflictException('Company with this name already exists');
+    }
+
+    throw error;
   }
 
   /**

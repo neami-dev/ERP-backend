@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  Unique,
 } from 'typeorm';
 
 import { Supplier } from 'src/suppliers/entities/supplier.entity';
@@ -13,6 +14,10 @@ import { DocumentSequence } from 'src/common/ document-number/document-sequence.
 import { User } from 'src/users/entities/user.entity';
 
 @Entity('companies')
+// The service has always refused a duplicate name, but only in code — two
+// concurrent signups could both pass that check. The constraint is what
+// actually guarantees it.
+@Unique(['name'])
 export class Company {
   @PrimaryGeneratedColumn('uuid')
   id: string;
