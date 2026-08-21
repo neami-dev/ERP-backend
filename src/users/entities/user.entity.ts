@@ -8,6 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { ApiHideProperty } from '@nestjs/swagger';
 import { Company } from 'src/companies/entities/company.entity';
 
 @Entity('users')
@@ -28,7 +29,13 @@ export class User {
    * `select: false` keeps the hash out of every query result by default,
    * so it can never leak through an API response. The sign-in flow is the
    * only place that loads it, using an explicit `addSelect`.
+   *
+   * `@ApiHideProperty` keeps it out of the OpenAPI document too: the Swagger
+   * plugin reads entity files, and `Company.users` pulls this class into the
+   * spec. The API never returns the field, so documenting it would only
+   * mislead a generated client.
    */
+  @ApiHideProperty()
   @Column({
     type: 'varchar',
     length: 255,
