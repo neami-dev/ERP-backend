@@ -2,20 +2,19 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { AuthGuard } from './auth.guard';
 import { UsersModule } from '../users/users.module';
-import { Company } from '../companies/entities/company.entity';
-import { DocumentNumberModule } from 'src/common/ document-number/document-number.module';
+import { CompaniesModule } from '../companies/companies.module';
 
 @Module({
   imports: [
     UsersModule,
-    DocumentNumberModule,
-    TypeOrmModule.forFeature([Company]),
+    // Signup creates a company and its first user; each module owns its own
+    // writes, and both join the one transaction signup opens.
+    CompaniesModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

@@ -10,7 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { Company } from '../companies/entities/company.entity';
-import { DocumentNumberService } from 'src/common/ document-number/document-number.service';
+import { CompaniesService } from '../companies/companies.service';
 import { SignUpDto } from './dto/sign-up.dto';
 import { SignInDto } from './dto/sign-in.dto';
 
@@ -26,8 +26,8 @@ export interface JwtPayload {
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
+    private readonly companiesService: CompaniesService,
     private readonly jwtService: JwtService,
-    private readonly documentNumberService: DocumentNumberService,
     private readonly dataSource: DataSource,
   ) { }
 
@@ -54,27 +54,14 @@ export class AuthService {
         throw new ConflictException('A user with this email already exists');
       }
 
-      const existingCompany = await queryRunner.manager.findOneBy(Company, {
-        name: companyName,
-      });
-
-      if (existingCompany) {
-        throw new ConflictException('Company with this name already exists');
-      }
-
-      const company = queryRunner.manager.create(Company, {
-        name: companyName,
-      });
-      await queryRunner.manager.save(company);
-
-      await this.documentNumberService.createDefaultSequences(
-        company.id,
+      // Each module writes its own tables, and both are handed this
+      // transaction's manager — so signup only decides the order, and a
+      // failure at any point rolls the whole thing back.
+      const company = await this.companiesService.create(
+        { name: companyName },
         queryRunner.manager,
       );
 
-      // Goes through UsersService, passing the transaction's manager, so the
-      // user is written by the module that owns users and still rolls back
-      // with the company if anything below fails.
       const user = await this.usersService.create(
         {
           email,
