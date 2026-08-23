@@ -15,10 +15,10 @@
 |---|---|---|
 | 0 | Environment check | ✅ Done |
 | 1 | Base: auth + config + main.ts | ✅ Done |
-| 2 | Master data modules (CRUD) | ⬜ Next |
-| 3 | Business logic (purchases, stock) | ⬜ Not started |
-| 4 | API contract for frontend | ⬜ Not started |
-| 5 | Final report | ⬜ Not started |
+| 2 | Master data modules (CRUD) | ✅ Done |
+| 3 | Business logic (purchases, stock) | ✅ Reviewed — gaps in the report |
+| 4 | API contract for frontend | ✅ Done |
+| 5 | Final report | ✅ Done — see the bottom |
 
 Legend: ⬜ not started · 🔄 in progress · ✅ done
 
@@ -565,6 +565,10 @@ For each module check:
 | warehouses | ⬜ | |
 | inventories | ⬜ | modified, not committed |
 
+> Swept module by module in Step 5 instead of one row at a time. Validation, 404s,
+> pagination and isolation came out clean everywhere; what the delete column hid is
+> **F1** and **F3** in the final report.
+
 ---
 
 ## Step 3 — Business logic (the risky part)
@@ -587,6 +591,10 @@ Checklist:
 - [ ] **Race condition:** two receives at the same time — does stock go wrong? (needs pessimistic lock)
 - [ ] Total price calculated in the backend, not trusted from the frontend
 - [ ] Document number generation is inside the transaction
+
+> Worked through in Step 5, by replaying the flow against the running app. Everything
+> above holds except partial receive (**F5**) and the missing order total (**F4**);
+> the lock and the transaction were confirmed in place.
 
 ---
 
@@ -668,19 +676,241 @@ string and never build a `Date` from it, or change the column to a timestamp.
 
 ## Step 5 — Final report
 
-Result: three lists.
-- 🔴 **Must fix before frontend** (blocking)
-- 🟡 **Fix soon** (not blocking, but important)
-- 🟢 **Good** (no change needed)
+**Date:** 2026-08-23 · **Method:** read every service, entity and controller, then
+replayed the whole purchasing flow by curl against a running app and a real Postgres
+(signup → warehouse → product → supplier → order → item → confirm → receive → delete),
+plus a fresh two-company isolation check. Every 🔴 and 🟡 below was reproduced, not
+guessed; the observed response is quoted with each one.
+
+### Closed since the plan was last written
+
+Four items the earlier steps left open are now done, so they are **not** repeated below:
+
+- **S1 / S2** — `JWT_SECRET` is a real random secret and `JWT_EXPIRES_IN = 7d`.
+- **S4** — document number prefixes and the missing sequences (`8ae3282`).
+  Verified live: the first order of a new company is `PO-2026-000001`.
+- **S6** — the `console.log({company})` is gone.
+- **Step 4's blocker** — Swagger response schemas, `679ba53` + `b5b89dc`.
+  11 controllers now declare what they return, and the password hash is out of the
+  OpenAPI document.
+
+
+---
+
+### 🔴 Must fix before the frontend — ✅ all three fixed 2026-08-23
+
+Fixed and re-verified against the running app the same way they were found. What each
+one now answers is quoted under it.
+
+**F1 — Deleting a row that is referenced answers 500.** ✅ **FIXED**
+
+```
+DELETE /products/{id}    → 500 {"message":"Internal server error"}
+DELETE /warehouses/{id}  → 500 {"message":"Internal server error"}
+DELETE /suppliers/{id}   → 500 {"message":"Internal server error"}
+```
+
+All three reproduced on rows that had stock movements / a purchase order behind them.
+Postgres refuses the delete with a foreign-key violation (`23503`), nothing catches it,
+and [http-exception.filter.ts:72](src/common/filters/http-exception.filter.ts#L72)
+correctly turns any non-`HttpException` into a generic 500. So every delete button in
+the UI can produce an unexplained "Internal server error", and the frontend cannot tell
+the user *why* — which is the one thing they need to know ("this product has stock
+history").
+
+**Fixed** by [`isForeignKeyViolation`](src/common/database/postgres-errors.ts) plus a
+shared [`removeEntity`](src/common/database/remove-entity.ts) that all 8 services now
+delete through. It restores the id `remove()` strips *and* maps the violation to a 409,
+so the two things every delete had to get right live in one place instead of eight.
+
+```
+DELETE /products/{id}   → 409 "This product cannot be deleted: it appears on a
+                               purchase order or has stock history."
+DELETE /warehouses/{id} → 409 "This warehouse cannot be deleted: it holds stock
+                               or has stock history."
+DELETE /suppliers/{id}  → 409 "This supplier cannot be deleted: it has purchase
+                               orders. Mark it inactive instead."
+```
+
+**F2 — `PATCH /inventories/:id` rewrites stock with no movement and no lock.** ✅ **FIXED**
+
+```
+inventory after receiving 5 units  → quantityOnHand: 5,    stock movements: 1
+PATCH /inventories/{id} {"quantityOnHand":9999}
+                                   → quantityOnHand: 9999, stock movements: 1
+```
+
+[stock-movements.service.ts:20](src/stock-movements/stock-movements.service.ts#L20)
+promises "stock can never move without a movement recording it". This endpoint breaks
+that promise: 9994 units appeared with nothing in the audit trail. It also skips the
+`pessimistic_write` lock that `applyMovement` takes, so it can silently overwrite a
+concurrent receipt. `POST /inventories` with an opening `quantityOnHand` has the same
+hole.
+
+**Fixed** by taking the second option: `POST /inventories` and `PATCH /inventories/:id`
+are gone, along with their DTOs and the now-unused repositories in the module.
+Inventories is a read-only resource; stock changes go through `POST /stock-movements`,
+which locks the row, validates the change and records it. `DELETE /inventories/:id`
+stays, but now refuses a record that still holds stock — deleting one would make the
+count vanish with nothing in the history to explain it.
+
+Verified that the removed endpoints cost the frontend nothing:
+
+```
+POST /inventories                                   → 404 (gone)
+POST /stock-movements  ADJUSTMENT +40, no row yet   → row created, onHand 40
+DELETE /inventories/{id} while it holds 40          → 409 "Adjust it down to zero…"
+POST /stock-movements  ADJUSTMENT -40               → onHand 0
+POST /stock-movements  ADJUSTMENT -5  from zero     → 409 "would make stock negative"
+DELETE /inventories/{id} now empty                  → 200, id intact
+GET  /stock-movements                               → both adjustments recorded
+```
+
+**F3 — Deleting a product silently empties draft order lines.** ✅ **FIXED**
+
+```
+draft order before → items: [{quantity: 7, unitCost: 3}]
+DELETE /products/{id} → 200
+draft order after  → items: []
+```
+
+`purchase_order_items.product` is `onDelete: 'CASCADE'`
+([purchase-order-item.entity.ts:18](src/purchases/entities/purchase-order-item.entity.ts#L18)),
+so an order the user is in the middle of writing loses lines with no error and no trace —
+the order stays `DRAFT` and just gets cheaper. Today F1 masks this whenever stock
+movements exist, but a product that was only ever ordered, never received, deletes clean.
+
+**Fixed**: the relation is now `onDelete: 'RESTRICT'`, so the database refuses and F1's
+handler turns that refusal into a 409. A product that appears on any order is not
+deletable at all — the order keeps its lines.
+
+```
+draft order before    → items: [{quantity: 7, unitCost: 3}]
+DELETE /products/{id} → 409
+draft order after     → items: [{quantity: 7, unitCost: 3}]   ← intact
+```
+
+---
+
+### 🟡 Fix soon
+
+**F4 — A purchase order has no total.** No `totalAmount` on the order, no line total on
+the item — verified on `GET /purchases/{id}`. Every screen showing an order has to sum
+`items[].quantity * unitCost` itself, and any list-level sum re-implements the same
+arithmetic. Nothing is *trusted* from the client (the Step 3 requirement is met — the
+client cannot send a total), but the number should be computed once, in the backend.
+Suggest a computed `totalAmount` on the order response, plus `lineTotal` per item.
+
+**F5 — Receiving is all-or-nothing.** `PATCH /purchases/:id/receive` takes only a
+`warehouseId` and books every line in full. There is no `receivedQuantity`, so a
+supplier delivering 3 of 5 cannot be recorded — the choice is to lie or to wait.
+Re-receiving is correctly refused (`400 "Only confirmed purchase orders can be
+received."`), so nothing is *broken*; the capability is simply missing. **Decide before
+the receive screen is designed**, because partial receipt changes the entity (a
+per-item received quantity) and the status flow (a `PARTIALLY_RECEIVED` state).
+
+**F6 — Login and signup return different user objects.**
+
+```
+signup → user: {id, email, firstName, lastName, companyId, companyName}
+login  → user: {id, email, firstName, lastName, companyId}
+```
+
+`companyName` is absent on login because
+[auth.service.ts:106](src/auth/auth.service.ts#L106) has no company loaded. A frontend
+that stores the `user` from either call gets two different shapes. Fix: load the company
+in `signIn`, or drop `companyName` from both and let the UI call `GET /companies/me`.
+
+**F7 — `GET /auth/profile` returns the raw JWT payload.**
+
+```
+{"sub":"…","email":"…","companyId":"…","iat":1787488693,"exp":1788093493}
+```
+
+A third user shape, with `sub` instead of `id` and JWT plumbing (`iat`/`exp`) leaking
+into an API response. It also never reflects a change made after the token was issued.
+Fix: load the user and return the same object login returns.
+
+**F8 — A company can only ever have one user.** `UsersService` has no controller, and
+`POST /auth/signup` always creates a *new* company. There is no invite, no user list, no
+deactivate — so a real customer cannot add a colleague. `isActive` is checked at login
+but nothing can set it. This is a product decision, not a bug, but it blocks any
+team/settings screen.
+
+**F9 — A deactivated user keeps working for up to 7 days.** `isActive` is only read at
+login and the token is self-contained, so disabling an account does not end the session.
+Acceptable while F8 means there is one user per company; revisit together with F8.
+
+**F10 — There are no tests.** Zero `.spec.ts` files in the repo — the empty scaffolds
+were deleted rather than filled in, so `npm test` passes by running nothing. The stock
+and purchase logic reviewed above (locks, transactions, status flow) is exactly the code
+that breaks quietly, and nothing guards it against the next refactor.
+
+**F11 — No migrations.** `synchronize` is on outside production
+([database.config.ts:22](src/config/database.config.ts#L22)) and there is no migration
+setup at all, so there is currently no way to create or evolve a production schema.
+Needed before any deploy, not before the frontend.
+
+**F12 — `orderDate` / `expectedDate` are calendar dates, `createdAt` is a timestamp.**
+Known and deliberate, and now documented on the entity
+([purchase-order.entity.ts:47](src/purchases/entities/purchase-order.entity.ts#L47)).
+Left here only as a note for the frontend: never `new Date("2026-08-23")` on those two
+fields — it parses as UTC midnight and shows the previous day west of UTC.
+
+---
+
+### 🟢 Good — no change needed
+
+- **Company isolation holds.** Re-verified with two fresh companies: reading another
+  company's order or supplier is `404` (not 403 — the id is not confirmed), a listing
+  shows only your own rows, and sending `companyId` in the body is refused with
+  `400 "property companyId should not exist"`. Every service takes `companyId` from the
+  token, never from the request.
+- **The receive path is transactional and locked.** Stock, movement and status change
+  commit or roll back together, and `applyMovement` takes a `pessimistic_write` lock on
+  the stock row ([inventories.service.ts:59](src/inventories/inventories.service.ts#L59)),
+  which is what closed the race condition proven in Step 2.
+- **Status flow is enforced.** Only a `DRAFT` can be edited or confirmed, confirming an
+  empty order is refused, a received order can be neither cancelled nor deleted, and a
+  second receive answers 400. Items can only be touched while the order is `DRAFT`.
+- **Document numbering is sound.** Generated inside the order's transaction, per company,
+  `PO-2026-000001` verified on a new tenant.
+- **One error shape everywhere**, `message` always a single string, `details` only for
+  validation, and no stack or driver text ever reaches the client.
+- **One list shape everywhere**: `{data, meta:{page, limit, total, totalPages}}`, with
+  `page`/`limit` validated and capped at 100.
+- **Auth basics**: bcrypt, `select: false` on the password (absent from every response
+  checked, and from the OpenAPI document), a dummy-hash compare so a wrong email and a
+  wrong password take the same time, and public routes limited to signup, login, `/`
+  and the docs.
+
+---
+
+### Suggested order of work
+
+1. ~~F1 + F3 — shared foreign-key handling and one `onDelete` change.~~ ✅ done 2026-08-23
+2. ~~F2 — remove the inventory write endpoints.~~ ✅ done 2026-08-23
+3. F6 + F7 — one user shape from signup, login and profile. An hour.
+4. F4 — order and line totals in the response. An hour.
+5. Then start the frontend. F5, F8, F9 are decisions to take while it is being built;
+   F10 and F11 before anything is deployed.
+
+**Not committed yet** — the fixes for 1 and 2 sit in the working tree on `main`.
+Steps 3 and 4 are still open; nothing blocks starting the frontend once they land.
 
 ---
 
 ## Open questions for the tech lead
 
-1. **Tests** — what do we do with the 5 empty scaffold spec files? (S5)
-   - (a) delete them → `npm test` is green because it runs nothing
-   - (b) leave them red and ignore
-   - (c) write real tests for the risky part only (purchase status flow + stock)
-2. **Token life** — 15 minutes is short. Raise to `7d` for now, or build refresh tokens? (S2)
-3. **Company isolation** — how do we filter by company? A decorator that reads
-   `companyId` from the token and every service filters by it? (S3, decide in Step 2)
+1. ~~**Tests** — what do we do with the 5 empty scaffold spec files? (S5)~~
+   **Answered:** option (a), they were deleted. Still open as **F10** — the purchase
+   status flow and the stock lock have no test at all.
+2. ~~**Token life** — 15 minutes is short.~~ **Answered:** `JWT_EXPIRES_IN = 7d`,
+   no refresh flow. See **F9** for what that costs.
+3. ~~**Company isolation** — how do we filter by company?~~ **Answered:** the
+   `@CurrentUser('companyId')` decorator + `companyId` in every service method.
+   Done in every module and re-verified in Step 5.
+4. **New — F5:** does receiving support partial delivery? It changes the entity and the
+   status flow, so it is cheaper to decide now than after the receive screen exists.
+5. **New — F8:** can a company have more than one user? If yes, we need invite / list /
+   deactivate endpoints, and probably the roles that were deferred at the start.
