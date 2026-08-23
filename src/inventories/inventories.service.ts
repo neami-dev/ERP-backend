@@ -9,15 +9,21 @@ import { Repository, QueryRunner } from 'typeorm';
 import { Inventory } from './entities/inventory.entity';
 import { Product } from 'src/products/entities/product.entity';
 import { Warehouse } from 'src/warehouses/entities/warehouse.entity';
-import { CreateInventoryDto } from './dto/create-inventory.dto';
-import { UpdateInventoryDto } from './dto/update-inventory.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { StockMovementType } from 'src/stock-movements/entities/stock-movement.entity';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Every method takes the `companyId` of the caller, read from their JWT.
  * Stock rows, the products they point at, and the warehouses they sit in must
  * all belong to that same company.
+ *
+ * Stock is **read** here and **written** only through `applyMovement`, which
+ * every caller reaches by recording a stock movement. There is deliberately no
+ * endpoint that sets a quantity directly: one that did would move stock with
+ * nothing in the audit trail to explain it, and would skip the row lock that
+ * keeps two concurrent movements from overwriting each other. To correct a
+ * count, post a stock movement of type ADJUSTMENT.
  */
 @Injectable()
 export class InventoriesService {
@@ -26,11 +32,7 @@ export class InventoriesService {
   constructor(
     @InjectRepository(Inventory)
     private readonly inventoryRepo: Repository<Inventory>,
-    @InjectRepository(Product)
-    private readonly productRepo: Repository<Product>,
-    @InjectRepository(Warehouse)
-    private readonly warehouseRepo: Repository<Warehouse>,
-  ) { }
+  ) {}
 
   /**
    * Service-to-service contract: applies the correct business-logic
@@ -116,7 +118,9 @@ export class InventoriesService {
 
       case StockMovementType.RESERVE:
         if (quantity <= 0) {
-          throw new ConflictException('RESERVE movement quantity must be positive');
+          throw new ConflictException(
+            'RESERVE movement quantity must be positive',
+          );
         }
         if (available < quantity) {
           throw new ConflictException(
@@ -128,7 +132,9 @@ export class InventoriesService {
 
       case StockMovementType.RELEASE:
         if (quantity <= 0) {
-          throw new ConflictException('RELEASE movement quantity must be positive');
+          throw new ConflictException(
+            'RELEASE movement quantity must be positive',
+          );
         }
         if (inventory.quantityReserved < quantity) {
           throw new ConflictException(
@@ -225,46 +231,6 @@ export class InventoriesService {
     };
   }
 
-  async create(createInventoryDto: CreateInventoryDto, companyId: string) {
-    const { productId, warehouseId } = createInventoryDto;
-
-    await this.assertProductAndWarehouseBelongToCompany(
-      productId,
-      warehouseId,
-      companyId,
-    );
-
-    const existingInventory = await this.inventoryRepo.existsBy({
-      productId,
-      warehouseId,
-    });
-
-    if (existingInventory) {
-      throw new ConflictException(
-        'Inventory already exists for this product and warehouse',
-      );
-    }
-
-    const quantityOnHand = createInventoryDto.quantityOnHand ?? 0;
-    const quantityReserved = createInventoryDto.quantityReserved ?? 0;
-
-    if (quantityReserved > quantityOnHand) {
-      throw new ConflictException(
-        'Reserved quantity cannot be greater than the quantity on hand',
-      );
-    }
-
-    const inventory = this.inventoryRepo.create({
-      productId,
-      warehouseId,
-      companyId,
-      quantityOnHand,
-      quantityReserved,
-    });
-
-    return await this.inventoryRepo.save(inventory);
-  }
-
   async findAll(query: PaginationDto, companyId: string) {
     const { page, limit } = query;
 
@@ -301,67 +267,26 @@ export class InventoriesService {
   }
 
   /**
-   * Corrects the counted quantities of an existing stock row.
+   * Removes an empty stock row — the product is no longer kept in that
+   * warehouse at all.
    *
-   * The product and the warehouse cannot be changed: that would silently move
-   * stock from one shelf to another with no trace. Delete the row and create
-   * the right one instead.
+   * A row still holding or reserving stock is refused: deleting it would make
+   * the stock vanish with nothing in the movement history to explain it. Book
+   * an ADJUSTMENT down to zero first, and the count stays auditable.
    */
-  async update(
-    id: string,
-    updateInventoryDto: UpdateInventoryDto,
-    companyId: string,
-  ) {
-    const inventory = await this.findOne(id, companyId);
-
-    if (updateInventoryDto.quantityOnHand !== undefined) {
-      inventory.quantityOnHand = updateInventoryDto.quantityOnHand;
-    }
-
-    if (updateInventoryDto.quantityReserved !== undefined) {
-      inventory.quantityReserved = updateInventoryDto.quantityReserved;
-    }
-
-    if (inventory.quantityReserved > inventory.quantityOnHand) {
-      throw new ConflictException(
-        'Reserved quantity cannot be greater than the quantity on hand',
-      );
-    }
-
-    return await this.inventoryRepo.save(inventory);
-  }
-
   async remove(id: string, companyId: string) {
     const inventory = await this.findOne(id, companyId);
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.inventoryRepo.remove(inventory);
-
-    return { ...removed, id };
-  }
-
-  private async assertProductAndWarehouseBelongToCompany(
-    productId: string,
-    warehouseId: string,
-    companyId: string,
-  ) {
-    const productExists = await this.productRepo.existsBy({
-      id: productId,
-      companyId,
-    });
-
-    if (!productExists) {
-      throw new NotFoundException('Product not found');
+    if (inventory.quantityOnHand !== 0 || inventory.quantityReserved !== 0) {
+      throw new ConflictException(
+        'This stock record still holds stock. Adjust it down to zero before deleting it.',
+      );
     }
 
-    const warehouseExists = await this.warehouseRepo.existsBy({
-      id: warehouseId,
-      companyId,
-    });
-
-    if (!warehouseExists) {
-      throw new NotFoundException('Warehouse not found');
-    }
+    return await removeEntity(
+      this.inventoryRepo,
+      inventory,
+      'This stock record cannot be deleted: other records still reference it.',
+    );
   }
 }
