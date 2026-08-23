@@ -9,10 +9,10 @@ import * as bcrypt from 'bcrypt';
 
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
-import { Company } from '../companies/entities/company.entity';
 import { CompaniesService } from '../companies/companies.service';
 import { SignUpDto } from './dto/sign-up.dto';
 import { SignInDto } from './dto/sign-in.dto';
+import { AuthResponseDto, AuthUserDto } from './dto/auth-response.dto';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -75,7 +75,7 @@ export class AuthService {
 
       await queryRunner.commitTransaction();
 
-      return this.buildAuthResponse(user, company);
+      return await this.buildAuthResponse(user, company.name);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -103,10 +103,27 @@ export class AuthService {
       throw new UnauthorizedException('This account is disabled');
     }
 
-    return this.buildAuthResponse(user);
+    return await this.buildAuthResponse(user, user.company.name);
   }
 
-  private async buildAuthResponse(user: User, company?: Company) {
+  /**
+   * The current user, in the same shape signup and login return.
+   *
+   * This used to hand back the raw JWT payload, which meant the client saw a
+   * third user shape — `sub` instead of `id`, plus `iat` and `exp` — and one
+   * that could never reflect a change made after the token was issued. The
+   * row is read fresh instead.
+   */
+  async getProfile(userId: string): Promise<AuthUserDto> {
+    const user = await this.usersService.findOne(userId);
+
+    return this.toAuthUser(user, user.company.name);
+  }
+
+  private async buildAuthResponse(
+    user: User,
+    companyName: string,
+  ): Promise<AuthResponseDto> {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -115,14 +132,26 @@ export class AuthService {
 
     return {
       access_token: await this.jwtService.signAsync(payload),
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        companyId: user.companyId,
-        companyName: company?.name,
-      },
+      user: this.toAuthUser(user, companyName),
+    };
+  }
+
+  /**
+   * One user shape for every endpoint that returns one, so a client can store
+   * whatever it gets back without checking where it came from.
+   *
+   * `companyName` is required rather than optional: it used to be filled in by
+   * signup and left out by login, which is exactly the kind of difference a
+   * frontend discovers at runtime.
+   */
+  private toAuthUser(user: User, companyName: string): AuthUserDto {
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      companyId: user.companyId,
+      companyName,
     };
   }
 }

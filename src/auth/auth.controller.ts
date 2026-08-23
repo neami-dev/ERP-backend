@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Get,
-  Request,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
@@ -13,7 +12,8 @@ import { AuthService } from './auth.service';
 import { SignUpDto } from './dto/sign-up.dto';
 import { SignInDto } from './dto/sign-in.dto';
 import { Public } from './decorators/public.decorator';
-import { AuthResponseDto, JwtPayloadDto } from './dto/auth-response.dto';
+import { AuthResponseDto, AuthUserDto } from './dto/auth-response.dto';
+import { CurrentUser } from './decorators/current-user.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -41,9 +41,14 @@ export class AuthController {
 
   @Get('profile')
   @ApiBearerAuth('access_token')
-  @ApiOperation({ summary: 'Return the JWT payload of the current user' })
-  @ApiOkResponse({ type: JwtPayloadDto })
-  getProfile(@Request() req) {
-    return req.user;
+  @ApiOperation({
+    summary: 'Return the current user',
+    description:
+      'The same user object signup and login return, read fresh from the ' +
+      'database rather than from the token.',
+  })
+  @ApiOkResponse({ type: AuthUserDto })
+  getProfile(@CurrentUser('sub') userId: string) {
+    return this.authService.getProfile(userId);
   }
 }

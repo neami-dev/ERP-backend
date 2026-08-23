@@ -52,15 +52,19 @@ export class UsersService {
   }
 
   /**
-   * Finds a user by email, including the password hash.
+   * Finds a user by email, including the password hash and their company.
    *
    * The password column is `select: false`, so it is pulled in explicitly
    * here. Use this only for authentication — never to build an API response.
+   *
+   * The company comes along because the sign-in response names it, and
+   * joining here costs nothing next to the bcrypt compare that follows.
    */
   async findByEmailWithPassword(email: string): Promise<User | null> {
     return await this.userRepository
       .createQueryBuilder('user')
       .addSelect('user.password')
+      .leftJoinAndSelect('user.company', 'company')
       .where('user.email = :email', { email })
       .getOne();
   }
