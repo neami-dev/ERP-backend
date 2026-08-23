@@ -1,17 +1,21 @@
 # Frontend handoff — backend changes, 2026-08-23
 
-Branch: `fix/safe-deletes-and-stock-audit-trail` (3 commits, not yet merged)
+Two branches, both open:
 
-Three changes went into the backend today, all from the Step 5 review. Two of them
-change the API surface, one changes only behaviour. **Nothing else moved** — auth, the
-error shape, the list shape, pagination and every other endpoint are exactly as they
-were.
+- `fix/safe-deletes-and-stock-audit-trail` — changes 1–3 below ([PR #6](https://github.com/neami-dev/ERP-backend/pull/6))
+- `feature/api-contract-cleanup` — changes 4–5 below
+
+Five changes went into the backend today, all from the Step 5 review. **Nothing else
+moved** — the error shape, the list shape, pagination, company isolation and every other
+endpoint are exactly as they were.
 
 | # | Change | Frontend impact |
 |---|---|---|
 | 1 | `POST /inventories` and `PATCH /inventories/:id` removed | **Breaking** — use stock movements instead |
 | 2 | Deletes answer `409` instead of `500` when the row is in use | **New branch to handle** on every delete |
 | 3 | A product used by a purchase order can no longer be deleted | Covered by the 409 branch |
+| 4 | Signup, login and `GET /auth/profile` return one identical user object | **Breaking** for profile — one session type now |
+| 5 | Orders carry `totalAmount`, lines carry `lineTotal` | Stop summing on the client |
 
 ---
 
@@ -140,6 +144,71 @@ catalogue screen needs it.
 
 ---
 
+## 4. One user shape from signup, login and profile
+
+Before, the three endpoints that return a user returned three different objects: signup
+included `companyName`, login left it out, and `GET /auth/profile` handed back the raw
+JWT payload (`sub` instead of `id`, plus `iat` and `exp`). All three now return exactly
+this, and `companyName` is always present:
+
+```ts
+interface AuthUser {
+  id: string
+  email: string
+  firstName: string
+  lastName: string | null
+  companyId: string
+  companyName: string      // no longer optional
+}
+```
+
+- `POST /auth/signup` → `{ access_token, user: AuthUser }`
+- `POST /auth/login` → `{ access_token, user: AuthUser }`
+- `GET /auth/profile` → `AuthUser` — **the shape changed**, it is no longer the token
+  payload. It is also read from the database now, so it reflects changes made after the
+  token was issued.
+
+**What to build:** one `AuthUser` type for the whole session. You no longer need
+`GET /companies/me` just to show the company name — though it still exists, and still
+returns the full company record (email, phone, address).
+
+Verified — the three responses are byte-for-byte the same object:
+
+```jsonc
+{ "id": "a8159901-…", "email": "sara@…", "firstName": "Sara", "lastName": "N",
+  "companyId": "30089bee-…", "companyName": "Shape Co" }
+```
+
+---
+
+## 5. Orders and lines carry their totals
+
+```jsonc
+// GET /purchases/:id  (and the list, and confirm/cancel/receive)
+{
+  "orderNumber": "PO-2026-000001",
+  "status": "DRAFT",
+  "totalAmount": 60.67,            // ← new: the sum of the lines
+  "items": [
+    { "quantity": 3, "unitCost": 19.99, "lineTotal": 59.97 },   // ← new
+    { "quantity": 7, "unitCost": 0.10,  "lineTotal": 0.70  }
+  ]
+}
+```
+
+Both are computed on the backend, rounded to two decimals, and returned by every
+endpoint that returns an order or a line — including the list, so an orders table shows
+totals without loading anything extra. A freshly created order comes back with
+`items: []` and `totalAmount: 0`.
+
+Neither can be sent by the client: `POST /purchases` with a `totalAmount` in the body is
+a `400 "property totalAmount should not exist"`.
+
+**What to build:** delete any client-side `reduce` over `items`. Note the rounding is
+done for you — `7 × 0.10` returns `0.7`, not `0.7000000000000001`.
+
+---
+
 ## Not changed today — still true
 
 - Auth: `POST /auth/signup`, `POST /auth/login`, 7-day token, `Authorization: Bearer …`
@@ -159,22 +228,23 @@ catalogue screen needs it.
 These were found in the review and are **not** fixed — they are on the list, but build
 around them for now.
 
-1. **A purchase order has no total.** Sum `items[]` yourself (`quantity * unitCost`).
-   List and detail both return the items, so no extra request.
-2. **Receiving is all-or-nothing** — `PATCH /purchases/:id/receive` takes only
-   `{ warehouseId }` and books every line in full. No partial delivery.
-3. **Three user shapes**: signup returns `user` with `companyName`, login returns it
-   without, `GET /auth/profile` returns the raw JWT payload (`sub`, `iat`, `exp`). Build
-   the session from login and call `GET /companies/me` for the company name.
-4. **No search, sort or filters on any list** except `GET /stock-movements`
+1. **Receiving is all-or-nothing** — `PATCH /purchases/:id/receive` takes only
+   `{ warehouseId }` and books every line in full. No partial delivery. Adding it changes
+   the entity and the status flow, so raise it before the receive screen is built.
+2. **No search, sort or filters on any list** except `GET /stock-movements`
    (`productId`, `warehouseId`, `type`).
-5. **`orderDate` / `expectedDate` are calendar dates** (`"2026-08-23"`), not timestamps.
+3. **`orderDate` / `expectedDate` are calendar dates** (`"2026-08-23"`), not timestamps.
    `new Date("2026-08-23")` parses as UTC midnight and renders as the previous day west
    of UTC.
-6. **One user per company** — signup always creates a new company, and there is no
-   invite or user list yet.
-7. **Never PATCH back an object you fetched.** Validation rejects any property outside
-   the DTO, including `id`, `companyId`, `createdAt` and loaded relations. Send only the
-   edited fields.
+4. **One user per company** — signup always creates a new company, and there is no
+   invite or user list yet. Blocks any team or settings screen.
+5. **A deactivated user keeps working until their token expires** (up to 7 days).
+   `isActive` is only read at login.
+6. **Never PATCH back an object you fetched.** Validation rejects any property outside
+   the DTO, including `id`, `companyId`, `createdAt`, loaded relations and now
+   `totalAmount` / `lineTotal`. Send only the edited fields.
+
+Two gaps from the first version of this document — no order total, and the three user
+shapes — are closed by changes 4 and 5 above.
 
 Full detail on all of these: [REVIEW-PLAN.md](REVIEW-PLAN.md), Step 5.
