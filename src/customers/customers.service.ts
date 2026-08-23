@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 
@@ -6,6 +10,7 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { Customer } from './entities/customer.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Every method takes the `companyId` of the caller, read from their JWT,
@@ -16,7 +21,7 @@ export class CustomersService {
   constructor(
     @InjectRepository(Customer)
     private readonly customerRepo: Repository<Customer>,
-  ) { }
+  ) {}
 
   async create(createCustomerDto: CreateCustomerDto, companyId: string) {
     await this.assertNoConflict(createCustomerDto, companyId);
@@ -77,11 +82,11 @@ export class CustomersService {
   async remove(id: string, companyId: string) {
     const customer = await this.findOne(id, companyId);
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.customerRepo.remove(customer);
-
-    return { ...removed, id };
+    return await removeEntity(
+      this.customerRepo,
+      customer,
+      'This customer cannot be deleted: other records still reference it.',
+    );
   }
 
   /**

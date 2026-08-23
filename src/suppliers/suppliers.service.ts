@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 
@@ -6,6 +10,7 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { Supplier } from './entities/supplier.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Every method takes the `companyId` of the caller, read from their JWT.
@@ -17,7 +22,7 @@ export class SuppliersService {
   constructor(
     @InjectRepository(Supplier)
     private readonly supplierRepo: Repository<Supplier>,
-  ) { }
+  ) {}
 
   async create(createSupplierDto: CreateSupplierDto, companyId: string) {
     await this.assertNoConflict(createSupplierDto, companyId);
@@ -78,11 +83,11 @@ export class SuppliersService {
   async remove(id: string, companyId: string) {
     const supplier = await this.findOne(id, companyId);
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.supplierRepo.remove(supplier);
-
-    return { ...removed, id };
+    return await removeEntity(
+      this.supplierRepo,
+      supplier,
+      'This supplier cannot be deleted: it has purchase orders. Mark it inactive instead.',
+    );
   }
 
   /**

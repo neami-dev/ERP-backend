@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -18,6 +22,7 @@ import {
 } from 'src/stock-movements/entities/stock-movement.entity';
 import { InventoriesService } from 'src/inventories/inventories.service';
 import { today } from 'src/common/utils/calendar-date';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Every method takes the `companyId` of the caller, read from their JWT, so an
@@ -38,7 +43,7 @@ export class PurchaseOrdersService {
     private readonly documentNumberService: DocumentNumberService,
     private readonly inventoriesService: InventoriesService,
     private readonly dataSource: DataSource,
-  ) { }
+  ) {}
 
   /**
    * Creates a new purchase order within a database transaction.
@@ -185,11 +190,11 @@ export class PurchaseOrdersService {
       );
     }
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.purchaseOrderRepo.remove(purchaseOrder);
-
-    return { ...removed, id };
+    return await removeEntity(
+      this.purchaseOrderRepo,
+      purchaseOrder,
+      'This purchase order cannot be deleted: other records still reference it.',
+    );
   }
 
   async confirm(id: string, companyId: string): Promise<PurchaseOrder> {

@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 
@@ -7,6 +11,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { Product } from './entities/product.entity';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { Category } from 'src/categories/entities/category.entity';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Every method takes the `companyId` of the caller, read from their JWT,
@@ -19,7 +24,7 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(Category)
     private readonly categoryRepository: Repository<Category>,
-  ) { }
+  ) {}
 
   async create(createProductDto: CreateProductDto, companyId: string) {
     await this.assertNoConflict(createProductDto, companyId);
@@ -103,11 +108,11 @@ export class ProductsService {
   async remove(id: string, companyId: string) {
     const product = await this.findOne(id, companyId);
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.productRepository.remove(product);
-
-    return { ...removed, id };
+    return await removeEntity(
+      this.productRepository,
+      product,
+      'This product cannot be deleted: it appears on a purchase order or has stock history.',
+    );
   }
 
   /**
