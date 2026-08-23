@@ -9,7 +9,9 @@ import {
   JoinColumn,
   OneToMany,
   Index,
+  AfterLoad,
 } from 'typeorm';
+import { roundMoney } from 'src/common/utils/money';
 import { Supplier } from 'src/suppliers/entities/supplier.entity';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
 import { PurchaseOrderStatus } from '../enums/purchase-order-status.enum';
@@ -75,6 +77,19 @@ export class PurchaseOrder {
   )
   items: PurchaseOrderItem[];
 
+  /**
+   * What the whole order costs: the sum of its lines.
+   *
+   * Computed on load rather than stored, so it cannot drift from the lines,
+   * and never taken from the client — a total that arrives in a request body
+   * is a price the client chose.
+   *
+   * Absent when the items were not loaded with the order. Every endpoint that
+   * returns an order does load them, so in practice it is always there; the
+   * alternative would be answering `0` for an order that may well have lines.
+   */
+  totalAmount: number;
+
   @ManyToOne(() => Company, (company) => company.purchaseOrders, { nullable: false })
   @JoinColumn({ name: 'company_id' })
   company: Company;
@@ -87,4 +102,20 @@ export class PurchaseOrder {
 
   @UpdateDateColumn({ name: "updated_at" })
   updatedAt: Date;
+
+  @AfterLoad()
+  computeTotalAmount() {
+    if (!this.items) {
+      return;
+    }
+
+    // Summed from the columns, not from each line's `lineTotal`: TypeORM does
+    // not promise the items' own @AfterLoad has run by the time this does.
+    this.totalAmount = roundMoney(
+      this.items.reduce(
+        (total, item) => total + item.quantity * item.unitCost,
+        0,
+      ),
+    );
+  }
 }
