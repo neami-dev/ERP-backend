@@ -16,6 +16,7 @@ endpoint are exactly as they were.
 | 3 | A product used by a purchase order can no longer be deleted | Covered by the 409 branch |
 | 4 | Signup, login and `GET /auth/profile` return one identical user object | **Breaking** for profile — one session type now |
 | 5 | Orders carry `totalAmount`, lines carry `lineTotal` | Stop summing on the client |
+| 6 | `OUT` movements take a `fromReservation` flag | **New field** on the stock-out call |
 
 ---
 
@@ -206,6 +207,53 @@ a `400 "property totalAmount should not exist"`.
 
 **What to build:** delete any client-side `reduce` over `items`. Note the rounding is
 done for you — `7 × 0.10` returns `0.7`, not `0.7000000000000001`.
+
+---
+
+## 6. Stock can now leave in two different ways
+
+A customer either walks in and takes stock, or collects something they reserved
+earlier. Those do different things to the counts, and the backend cannot tell them
+apart — so `POST /stock-movements` takes a flag:
+
+```jsonc
+// walk-in: takes from available stock, the reservation is untouched
+{ "type": "OUT", "quantity": 10, ... }                            // fromReservation defaults to false
+
+// collecting a reservation: lowers on-hand AND the reservation
+{ "type": "OUT", "quantity": 20, "fromReservation": true, ... }
+```
+
+What each does, starting from `onHand 100, reserved 20, available 80`:
+
+| Call | onHand | reserved | available |
+|---|---|---|---|
+| `OUT 10` (walk-in) | 90 | 20 | 70 |
+| `OUT 20` with `fromReservation: true` | 80 | 0 | 80 |
+| `RESERVE 20` | 100 | 40 | 60 |
+| `RELEASE 20` | 100 | 0 | 100 |
+
+Validation differs between the two, and so do the errors:
+
+```
+walk-in  OUT 80 with only 70 free   → 409 "Insufficient available stock (available: 70, requested: 80)"
+reserved OUT 10 with nothing held   → 409 "Insufficient reserved stock (reserved: 0, requested: 10)"
+fromReservation on a RESERVE        → 400 "fromReservation only applies to an OUT movement, not RESERVE"
+```
+
+**What to build:** wherever the UI takes stock out, it has to know which of the two it
+is. If the screen came from a reservation, send `fromReservation: true`; a plain
+counter sale sends nothing. Getting it wrong does not fail loudly — booking a reserved
+collection as a walk-in leaves the reservation standing over stock that has left, and
+`available` stays short until someone releases it by hand.
+
+`GET /stock-movements` now returns `fromReservation` on every row, so a history screen
+can label the two kinds of OUT apart.
+
+**Note:** a reservation is still only a number on the stock row — there is no
+reservation record to point at, so nothing ties a collection back to the reservation it
+fulfils. If you need "show me this customer's reservations", that needs a backend model
+first.
 
 ---
 

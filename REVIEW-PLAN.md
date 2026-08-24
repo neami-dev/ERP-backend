@@ -859,10 +859,15 @@ team/settings screen.
 login and the token is self-contained, so disabling an account does not end the session.
 Acceptable while F8 means there is one user per company; revisit together with F8.
 
-**F10 — There are no tests.** Zero `.spec.ts` files in the repo — the empty scaffolds
-were deleted rather than filled in, so `npm test` passes by running nothing. The stock
-and purchase logic reviewed above (locks, transactions, status flow) is exactly the code
-that breaks quietly, and nothing guards it against the next refactor.
+**F10 — There are no tests.** 🔸 **Partly addressed 2026-08-24.** The repo had zero
+`.spec.ts` files — the empty scaffolds were deleted rather than filled in, so
+`npm test` passed by running nothing. It now has **44 tests across 2 suites**, written
+with the two-scenario OUT work: `inventories.service.spec.ts` covers every movement
+type, both kinds of OUT, the quantity guards, the invariants and the row lock;
+`stock-movements.service.spec.ts` covers the caller-side rules and the rollback.
+
+Still uncovered, and still the code that breaks quietly: the purchase order status
+flow, document numbering, company isolation, and every CRUD service.
 
 **F11 — No migrations.** `synchronize` is on outside production
 ([database.config.ts:22](src/config/database.config.ts#L22)) and there is no migration
