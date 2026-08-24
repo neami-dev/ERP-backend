@@ -58,9 +58,20 @@ export class CompaniesService {
     return company;
   }
 
-  /** The company of the caller, taken from their token. */
+  /**
+   * The company of the caller, taken from their token.
+   *
+   * Joins the logo's metadata, never its bytes: `CompanyLogo.data` is
+   * `select: false`, so a plain `leftJoinAndSelect` cannot pull it in even by
+   * accident. A client that wants the image itself calls
+   * `GET /companies/me/logo`.
+   */
   async findMine(companyId: string) {
-    const company = await this.companyRepository.findOneBy({ id: companyId });
+    const company = await this.companyRepository
+      .createQueryBuilder('company')
+      .leftJoinAndSelect('company.logo', 'logo')
+      .where('company.id = :companyId', { companyId })
+      .getOne();
 
     if (!company) {
       throw new NotFoundException('Company not found');
@@ -94,10 +105,15 @@ export class CompaniesService {
     Object.assign(company, updateCompanyDto);
 
     try {
-      return await this.companyRepository.save(company);
+      await this.companyRepository.save(company);
     } catch (error) {
       this.rethrowDuplicateNameAsConflict(error);
     }
+
+    // Re-read rather than return the saved entity directly, so a PATCH
+    // response carries the same `logo` metadata a GET does — `save()` here
+    // never loaded that relation.
+    return await this.findMine(companyId);
   }
 
   /**
