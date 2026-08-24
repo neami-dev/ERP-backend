@@ -45,6 +45,14 @@ export class InventoriesService {
    * two concurrent receipts both read the same `quantityOnHand`, both add
    * their amount to that stale number, and the second save overwrites the
    * first — stock silently goes missing.
+   *
+   * @param fromReservation Only meaningful for OUT, where it picks between the
+   * two ways stock leaves. `false` (the default) is a walk-in: the goods were
+   * never set aside, so they come out of what is available. `true` is a
+   * customer collecting what they reserved earlier: the goods are already out
+   * of `available`, so they come out of the reservation instead. Only the
+   * caller knows which happened — this service cannot tell them apart, because
+   * a reservation is a counter here, not a record.
    */
   async applyMovement(
     queryRunner: QueryRunner,
@@ -53,6 +61,7 @@ export class InventoriesService {
     companyId: string,
     type: StockMovementType,
     quantity: number,
+    fromReservation = false,
   ): Promise<void> {
     // 1. Load the stock row, locked, or create it if this is the first movement
     let inventory = await queryRunner.manager
@@ -108,11 +117,32 @@ export class InventoriesService {
         if (quantity <= 0) {
           throw new ConflictException('OUT movement quantity must be positive');
         }
+
+        if (fromReservation) {
+          // These goods were already set aside by a RESERVE, so they are not
+          // part of `available` any more: checking it here would refuse a
+          // collection the customer is entitled to. The reservation has to
+          // come down with the stock — leaving it standing would hold back
+          // goods that have physically left the warehouse.
+          if (inventory.quantityReserved < quantity) {
+            throw new ConflictException(
+              `Insufficient reserved stock (reserved: ${inventory.quantityReserved}, requested: ${quantity})`,
+            );
+          }
+
+          inventory.quantityOnHand -= quantity;
+          inventory.quantityReserved -= quantity;
+          break;
+        }
+
+        // A walk-in: nothing was set aside, so this may only take what is
+        // free. Somebody else's reservation is not available to it.
         if (available < quantity) {
           throw new ConflictException(
             `Insufficient available stock (available: ${available}, requested: ${quantity})`,
           );
         }
+
         inventory.quantityOnHand -= quantity;
         break;
 

@@ -115,6 +115,20 @@ export class StockMovement {
   })
   referenceId: string | null;
 
+  /**
+   * True when this OUT collected stock that had been reserved, rather than
+   * taking free stock off the shelf.
+   *
+   * Recorded because the two are the same row otherwise, while their effect
+   * differs: a reserved collection lowers `quantityReserved` as well as
+   * `quantityOnHand`. Without this flag the history cannot explain why the
+   * reservation fell, and the movements no longer replay to the counts.
+   *
+   * Always false for every type other than OUT.
+   */
+  @Column({ name: 'from_reservation', type: 'boolean', default: false })
+  fromReservation: boolean;
+
   @Column({
     type: 'text',
     nullable: true,

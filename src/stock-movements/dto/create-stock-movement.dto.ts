@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+    IsBoolean,
     IsEnum,
     IsInt,
     IsNotEmpty,
@@ -75,6 +76,19 @@ export class CreateStockMovementDto {
     @IsOptional()
     @IsUUID()
     referenceId?: string;
+
+    @ApiPropertyOptional({
+        example: false,
+        default: false,
+        description:
+            'OUT only. `false` (the default) is a walk-in: the goods were never ' +
+            'set aside, so they come out of available stock. `true` is a customer ' +
+            'collecting what they reserved earlier, which lowers the reservation ' +
+            'along with the stock. Sending it with any other type is rejected.',
+    })
+    @IsOptional()
+    @IsBoolean()
+    fromReservation?: boolean;
 
     @ApiProperty({
         example: 'Initial stock received.',
