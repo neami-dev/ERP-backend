@@ -78,6 +78,7 @@ export class StockMovementsService {
       referenceId,
       notes,
       unitCost,
+      fromReservation = false,
     } = dto;
 
     // -----------------------------------------------------------------
@@ -114,6 +115,15 @@ export class StockMovementsService {
       }
     }
 
+    // Only an OUT can come from a reservation. Accepting the flag anywhere
+    // else would let a caller believe a RESERVE or an ADJUSTMENT had drawn
+    // down the reservation when it had not.
+    if (fromReservation && type !== StockMovementType.OUT) {
+      throw new BadRequestException(
+        `fromReservation only applies to an OUT movement, not ${type}`,
+      );
+    }
+
     // -----------------------------------------------------------------
     // 2️⃣  Mutate inventory (service‑to‑service call)
     // -----------------------------------------------------------------
@@ -124,6 +134,7 @@ export class StockMovementsService {
       companyId,
       type,
       quantity,
+      fromReservation,
     );
 
     // -----------------------------------------------------------------
@@ -135,6 +146,7 @@ export class StockMovementsService {
       unitCost,
       referenceType,
       referenceId: referenceId ?? null,
+      fromReservation,
       notes,
       productId,
       warehouseId,

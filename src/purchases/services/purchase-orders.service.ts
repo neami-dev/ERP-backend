@@ -92,6 +92,12 @@ export class PurchaseOrdersService {
 
       await queryRunner.commitTransaction();
 
+      // Built in memory, so the @AfterLoad hook that fills these in never
+      // ran. A new order has no lines yet, and the client should not have to
+      // treat this one response differently from every other.
+      purchaseOrder.items = [];
+      purchaseOrder.totalAmount = 0;
+
       return purchaseOrder;
     } catch (error) {
       await queryRunner.rollbackTransaction();

@@ -41,7 +41,13 @@ export class PurchaseOrderItemsService {
       purchaseOrderId,
     });
 
-    return await this.purchaseOrderItemRepository.save(item);
+    const saved = await this.purchaseOrderItemRepository.save(item);
+
+    // `lineTotal` is filled in by an @AfterLoad hook, which a save does not
+    // trigger — without this the line would come back without its total.
+    saved.computeLineTotal();
+
+    return saved;
   }
 
   async update(
@@ -56,7 +62,13 @@ export class PurchaseOrderItemsService {
 
     Object.assign(item, dto);
 
-    return await this.purchaseOrderItemRepository.save(item);
+    const saved = await this.purchaseOrderItemRepository.save(item);
+
+    // The quantity or the cost may have just changed, so the total loaded
+    // with the row is stale.
+    saved.computeLineTotal();
+
+    return saved;
   }
 
   async remove(purchaseOrderId: string, itemId: string, companyId: string) {

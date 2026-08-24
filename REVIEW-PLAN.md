@@ -794,12 +794,27 @@ draft order after     → items: [{quantity: 7, unitCost: 3}]   ← intact
 
 ### 🟡 Fix soon
 
-**F4 — A purchase order has no total.** No `totalAmount` on the order, no line total on
-the item — verified on `GET /purchases/{id}`. Every screen showing an order has to sum
-`items[].quantity * unitCost` itself, and any list-level sum re-implements the same
-arithmetic. Nothing is *trusted* from the client (the Step 3 requirement is met — the
-client cannot send a total), but the number should be computed once, in the backend.
-Suggest a computed `totalAmount` on the order response, plus `lineTotal` per item.
+**F4 — A purchase order has no total.** ✅ **FIXED 2026-08-23**
+No `totalAmount` on the order, no line total on the item — verified on
+`GET /purchases/{id}`. Every screen showing an order had to sum
+`items[].quantity * unitCost` itself, and any list-level sum re-implemented the same
+arithmetic. Nothing was *trusted* from the client (the Step 3 requirement was already
+met — the client cannot send a total), but the number belongs in the backend.
+
+**Fixed** with `totalAmount` on the order and `lineTotal` on each line, computed by
+`@AfterLoad` rather than stored, so neither can drift from the columns it comes from.
+Rounding goes through one [`roundMoney`](src/common/utils/money.ts) helper.
+
+```
+POST /purchases                      → items: [], totalAmount: 0
+POST item 3 x 19.99                  → lineTotal 59.97
+POST item 7 x 0.10                   → lineTotal 0.7      (not 0.7000000000000001)
+GET  /purchases/{id}                 → totalAmount 60.67
+GET  /purchases        (list)        → totalAmount 60.67
+PATCH line to 5 x 19.99              → lineTotal 99.95, totalAmount 100.65
+confirm, then receive                → totalAmount survives both
+POST /purchases {totalAmount: 9999}  → 400 "property totalAmount should not exist"
+```
 
 **F5 — Receiving is all-or-nothing.** `PATCH /purchases/:id/receive` takes only a
 `warehouseId` and books every line in full. There is no `receivedQuantity`, so a
@@ -809,27 +824,30 @@ received."`), so nothing is *broken*; the capability is simply missing. **Decide
 the receive screen is designed**, because partial receipt changes the entity (a
 per-item received quantity) and the status flow (a `PARTIALLY_RECEIVED` state).
 
-**F6 — Login and signup return different user objects.**
+**F6 + F7 — Three different user shapes.** ✅ **FIXED 2026-08-23**
 
 ```
-signup → user: {id, email, firstName, lastName, companyId, companyName}
-login  → user: {id, email, firstName, lastName, companyId}
+signup  → user: {id, email, firstName, lastName, companyId, companyName}
+login   → user: {id, email, firstName, lastName, companyId}
+profile → {sub, email, companyId, iat, exp}
 ```
 
-`companyName` is absent on login because
-[auth.service.ts:106](src/auth/auth.service.ts#L106) has no company loaded. A frontend
-that stores the `user` from either call gets two different shapes. Fix: load the company
-in `signIn`, or drop `companyName` from both and let the UI call `GET /companies/me`.
+`companyName` was absent on login because `signIn` never loaded the company, and
+`/auth/profile` handed back the token payload — `sub` instead of `id`, JWT plumbing
+leaking into an API response, and a shape that could never reflect a change made after
+the token was issued.
 
-**F7 — `GET /auth/profile` returns the raw JWT payload.**
+**Fixed**: one `toAuthUser` builds the response for all three, `companyName` is required
+rather than optional, `findByEmailWithPassword` joins the company (free next to the
+bcrypt compare that follows), and `/auth/profile` reads the user from the database.
+`JwtPayloadDto` is gone.
 
 ```
-{"sub":"…","email":"…","companyId":"…","iat":1787488693,"exp":1788093493}
+signup  → {"id":"a815…","email":"…","firstName":"Sara","lastName":"N",
+           "companyId":"3008…","companyName":"Shape Co"}
+login   → identical
+profile → identical
 ```
-
-A third user shape, with `sub` instead of `id` and JWT plumbing (`iat`/`exp`) leaking
-into an API response. It also never reflects a change made after the token was issued.
-Fix: load the user and return the same object login returns.
 
 **F8 — A company can only ever have one user.** `UsersService` has no controller, and
 `POST /auth/signup` always creates a *new* company. There is no invite, no user list, no
@@ -841,10 +859,15 @@ team/settings screen.
 login and the token is self-contained, so disabling an account does not end the session.
 Acceptable while F8 means there is one user per company; revisit together with F8.
 
-**F10 — There are no tests.** Zero `.spec.ts` files in the repo — the empty scaffolds
-were deleted rather than filled in, so `npm test` passes by running nothing. The stock
-and purchase logic reviewed above (locks, transactions, status flow) is exactly the code
-that breaks quietly, and nothing guards it against the next refactor.
+**F10 — There are no tests.** 🔸 **Partly addressed 2026-08-24.** The repo had zero
+`.spec.ts` files — the empty scaffolds were deleted rather than filled in, so
+`npm test` passed by running nothing. It now has **44 tests across 2 suites**, written
+with the two-scenario OUT work: `inventories.service.spec.ts` covers every movement
+type, both kinds of OUT, the quantity guards, the invariants and the row lock;
+`stock-movements.service.spec.ts` covers the caller-side rules and the rollback.
+
+Still uncovered, and still the code that breaks quietly: the purchase order status
+flow, document numbering, company isolation, and every CRUD service.
 
 **F11 — No migrations.** `synchronize` is on outside production
 ([database.config.ts:22](src/config/database.config.ts#L22)) and there is no migration
@@ -890,13 +913,14 @@ fields — it parses as UTC midnight and shows the previous day west of UTC.
 
 1. ~~F1 + F3 — shared foreign-key handling and one `onDelete` change.~~ ✅ done 2026-08-23
 2. ~~F2 — remove the inventory write endpoints.~~ ✅ done 2026-08-23
-3. F6 + F7 — one user shape from signup, login and profile. An hour.
-4. F4 — order and line totals in the response. An hour.
+3. ~~F6 + F7 — one user shape from signup, login and profile.~~ ✅ done 2026-08-23
+4. ~~F4 — order and line totals in the response.~~ ✅ done 2026-08-23
 5. Then start the frontend. F5, F8, F9 are decisions to take while it is being built;
    F10 and F11 before anything is deployed.
 
-**Not committed yet** — the fixes for 1 and 2 sit in the working tree on `main`.
-Steps 3 and 4 are still open; nothing blocks starting the frontend once they land.
+Steps 1–2 are on `fix/safe-deletes-and-stock-audit-trail` (PR #6); steps 3–4 on
+`feature/api-contract-cleanup`, stacked on it. **Nothing blocks the frontend now** —
+what is left is F5 and F8, which are decisions, plus tests and migrations before deploy.
 
 ---
 

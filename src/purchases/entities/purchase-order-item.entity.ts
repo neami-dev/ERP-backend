@@ -6,10 +6,12 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  AfterLoad,
 } from 'typeorm';
 import { PurchaseOrder } from './purchase-order.entity';
 import { Product } from 'src/products/entities/product.entity';
 import { decimalTransformer } from 'src/common/transformers/decimal.transformer';
+import { roundMoney } from 'src/common/utils/money';
 
 @Entity('purchase_order_items')
 export class PurchaseOrderItem {
@@ -57,9 +59,22 @@ export class PurchaseOrderItem {
   @JoinColumn({ name: 'purchase_order_id' })
   purchaseOrder: PurchaseOrder;
 
+  /**
+   * What this line costs: `quantity × unitCost`.
+   *
+   * Computed on load, not stored: a stored copy is one more thing that can
+   * disagree with the two numbers it comes from.
+   */
+  lineTotal: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  @AfterLoad()
+  computeLineTotal() {
+    this.lineTotal = roundMoney(this.quantity * this.unitCost);
+  }
 }
