@@ -1,20 +1,38 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseUUIDPipe } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  ParseUUIDPipe,
+} from '@nestjs/common';
+import {
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { RequirePermissions } from 'src/auth/decorators/require-permissions.decorator';
 import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { Permission } from 'src/common/permissions/permission';
 import { Category } from './entities/category.entity';
 
 @ApiTags('categories')
 @Controller('categories')
 export class CategoriesController {
-  constructor(private readonly categoriesService: CategoriesService) { }
+  constructor(private readonly categoriesService: CategoriesService) {}
 
   @Post()
+  @RequirePermissions(Permission.CATEGORIES_CREATE)
   @ApiOperation({ summary: 'Create a category for the current company' })
   @ApiCreatedResponse({ type: Category })
   create(
@@ -25,6 +43,7 @@ export class CategoriesController {
   }
 
   @Get()
+  @RequirePermissions(Permission.CATEGORIES_READ)
   @ApiOperation({ summary: 'Get the categories of the current company' })
   @ApiPaginatedResponse(Category)
   findAll(
@@ -35,6 +54,7 @@ export class CategoriesController {
   }
 
   @Get(':id')
+  @RequirePermissions(Permission.CATEGORIES_READ)
   @ApiOperation({ summary: 'Get a category by ID' })
   @ApiOkResponse({ type: Category })
   findOne(
@@ -45,6 +65,7 @@ export class CategoriesController {
   }
 
   @Patch(':id')
+  @RequirePermissions(Permission.CATEGORIES_UPDATE)
   @ApiOperation({ summary: 'Update a category by ID' })
   @ApiOkResponse({ type: Category })
   update(
@@ -56,6 +77,7 @@ export class CategoriesController {
   }
 
   @Delete(':id')
+  @RequirePermissions(Permission.CATEGORIES_DELETE)
   @ApiOperation({ summary: 'Delete a category by ID' })
   @ApiOkResponse({ type: Category })
   remove(

@@ -10,7 +10,9 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InventoriesService } from './inventories.service';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { RequirePermissions } from 'src/auth/decorators/require-permissions.decorator';
 import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { Permission } from 'src/common/permissions/permission';
 import { Inventory } from './entities/inventory.entity';
 
 /**
@@ -25,6 +27,7 @@ export class InventoriesController {
   constructor(private readonly inventoriesService: InventoriesService) {}
 
   @Get()
+  @RequirePermissions(Permission.INVENTORIES_READ)
   @ApiOperation({ summary: 'Get the inventory records of the current company' })
   @ApiPaginatedResponse(Inventory)
   findAll(
@@ -35,6 +38,7 @@ export class InventoriesController {
   }
 
   @Get(':id')
+  @RequirePermissions(Permission.INVENTORIES_READ)
   @ApiOperation({ summary: 'Get an inventory record by ID' })
   @ApiOkResponse({ type: Inventory })
   findOne(
@@ -45,6 +49,7 @@ export class InventoriesController {
   }
 
   @Delete(':id')
+  @RequirePermissions(Permission.INVENTORIES_DELETE)
   @ApiOperation({
     summary: 'Delete an empty stock record',
     description:
