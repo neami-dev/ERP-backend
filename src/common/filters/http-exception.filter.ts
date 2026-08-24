@@ -29,6 +29,15 @@ export interface ApiErrorResponse {
   timestamp: string;
 }
 
+/**
+ * Node's HTTP-adjacent errors (body-parser among them) attach `status` and
+ * `expose` to a plain `Error` rather than throwing a class this filter could
+ * `instanceof` against — this is the narrowest check that reaches them.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -38,16 +47,30 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
+    // A request over `useBodyParser`'s limit throws before Nest's routing
+    // ever runs, so it can never become an HttpException — but body-parser
+    // marks it `expose: true`, its own way of saying "safe to show the
+    // client", same as Nest's HttpException is for everything below it. Not
+    // recognising this shape would report a client sending too much data as
+    // a 500 bug in this server, and log it as one.
+    const isExposedHttpError =
+      isRecord(exception) &&
+      exception.expose === true &&
+      typeof exception.status === 'number';
+
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : isExposedHttpError
+          ? (exception.status as number)
+          : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const { message, details, error } = this.describe(exception, status);
 
-    // Anything that is not a deliberate HttpException is a bug, not a rejected
-    // request — log the whole thing so it is not lost behind a generic 500.
-    if (!(exception instanceof HttpException)) {
+    // Anything that is neither a deliberate HttpException nor one of the few
+    // errors above is a bug, not a rejected request — log the whole thing so
+    // it is not lost behind a generic 500.
+    if (!(exception instanceof HttpException) && !isExposedHttpError) {
       this.logger.error(
         `Unhandled error on ${request.method} ${request.url}`,
         exception instanceof Error ? exception.stack : String(exception),
@@ -68,6 +91,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
   private describe(exception: unknown, status: number) {
     const error = this.reasonPhrase(status);
+
+    if (isRecord(exception) && exception.expose === true) {
+      // body-parser's own message is already written for a client — unlike
+      // an arbitrary thrown Error, it was explicitly marked safe to show.
+      const message =
+        typeof exception.message === 'string'
+          ? exception.message
+          : 'Request could not be processed.';
+
+      return { message, details: undefined, error };
+    }
 
     if (!(exception instanceof HttpException)) {
       // Never leak an internal stack or driver message to the client.
@@ -98,8 +132,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     return {
-      message:
-        typeof rawMessage === 'string' ? rawMessage : exception.message,
+      message: typeof rawMessage === 'string' ? rawMessage : exception.message,
       details: undefined,
       error: typeof record.error === 'string' ? record.error : error,
     };
