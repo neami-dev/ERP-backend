@@ -1,13 +1,13 @@
 # Frontend handoff — backend changes, 2026-08-23
 
-Two branches, both open:
+Three branches:
 
 - `fix/safe-deletes-and-stock-audit-trail` — changes 1–3 below ([PR #6](https://github.com/neami-dev/ERP-backend/pull/6))
-- `feature/api-contract-cleanup` — changes 4–5 below
+- `feature/api-contract-cleanup` — changes 4–6 below ([PR #7](https://github.com/neami-dev/ERP-backend/pull/7))
+- `feature/company-profile` — changes 7–8 below, **not yet committed or pushed**
 
-Five changes went into the backend today, all from the Step 5 review. **Nothing else
-moved** — the error shape, the list shape, pagination, company isolation and every other
-endpoint are exactly as they were.
+**Nothing else moved** — the error shape, the list shape, pagination, company isolation
+and every other endpoint are exactly as they were.
 
 | # | Change | Frontend impact |
 |---|---|---|
@@ -17,6 +17,8 @@ endpoint are exactly as they were.
 | 4 | Signup, login and `GET /auth/profile` return one identical user object | **Breaking** for profile — one session type now |
 | 5 | Orders carry `totalAmount`, lines carry `lineTotal` | Stop summing on the client |
 | 6 | `OUT` movements take a `fromReservation` flag | **New field** on the stock-out call |
+| 7 | Company gains legal identifiers, currency, fiscal year | **New fields** on `GET /companies/me` and `PATCH` |
+| 8 | Company logo: `PUT/GET/DELETE /companies/me/logo` | **New routes** — raw binary, needs a fetch-and-blob pattern |
 
 ---
 
@@ -257,6 +259,134 @@ first.
 
 ---
 
+## 7. Company gains legal identifiers, currency, and a fiscal year
+
+`GET /companies/me` and `PATCH /companies/:id` gain eight new fields, all optional,
+all nullable except the two settings:
+
+```ts
+interface Company {
+  // ...existing: id, name, email, phone, address, isActive...
+
+  ice: string | null              // Identifiant Commun de l'Entreprise — exactly 15 digits
+  taxId: string | null            // Identifiant Fiscal (IF)
+  rcNumber: string | null         // Registre de Commerce number
+  rcCity: string | null           // the commercial court that issued it — pair with rcNumber
+  cnss: string | null             // CNSS employer affiliation number
+  patente: string | null          // taxe professionnelle
+
+  defaultCurrency: string         // ISO 4217, default "MAD" — see note below
+  fiscalYearStartMonth: number    // 1-12, default 1 (January)
+
+  logo: { contentType: string; byteSize: number; updatedAt: string } | null
+}
+```
+
+**Validation, so you know what error to expect:**
+
+```
+PATCH { ice: "1234567890123" }             → 400 "ICE must be exactly 15 digits."
+PATCH { defaultCurrency: "TND" }           → 400 "defaultCurrency must be one of: MAD, EUR, USD, GBP, CHF, CAD, AED, SAR"
+PATCH { fiscalYearStartMonth: 13 }         → 400 (details array)
+```
+
+`ice`, `taxId`, `rcNumber`, `cnss` and `patente` accept spaced input and clean it up —
+`"001 234 567 000 025"` is accepted and stored as `"001234567000025"`. Only `ice` is
+validated to an exact format (15 digits); the others just have to be digits within a
+generous length, since their real-world formats vary and nothing downstream enforces
+them yet.
+
+**Clearing a field:** send `null` (or `""`, which is treated the same). Omitting the key
+entirely leaves the field unchanged — verified: `PATCH { phone: "+212…" }` alone does not
+touch `ice`, `defaultCurrency`, or anything else already set.
+
+**`defaultCurrency` is a display label, not a conversion.** There is no per-document
+currency and no exchange rate anywhere in the API — every amount in every response is
+assumed to already be in this currency. Changing it **relabels every historical document
+without converting a single number**. If you build a currency picker, it should carry a
+warning, not read as a neutral setting.
+
+**`fiscalYearStartMonth` is for reporting periods only.** Document numbers
+(`PO-2026-000001`) keep using the calendar year regardless of this value — don't wire
+the two together on the frontend either.
+
+**Nothing is enforced.** A company can confirm purchase orders with no ICE, no IF, and
+no logo. If invoicing is built later and needs these to be present, that check will need
+to be added then — today the fields are stored, not required.
+
+---
+
+## 8. Company logo — a new sub-resource, not a field
+
+```
+PUT    /companies/me/logo   { contentType, data }   → 200, metadata only
+GET    /companies/me/logo                           → 200 raw binary | 304 | 404
+DELETE /companies/me/logo                           → 204
+```
+
+**Not part of `PATCH /companies/:id`.** Sending `logo` in that body is a
+`400 "property logo should not exist"` — the DTO whitelist rejects it on purpose. Upload
+and delete are separate calls.
+
+**Upload is base64 in JSON**, capped at 512 KB decoded (`PNG`, `JPEG` or `WebP` only):
+
+```jsonc
+PUT /companies/me/logo
+{ "contentType": "image/png", "data": "iVBORw0KGgo..." }   // no "data:" prefix
+```
+
+```
+too big              → 400 "Logo must be at most 512 KB." (details array)
+not a real image      → 422 "The uploaded file is not a recognised PNG, JPEG or WebP image."
+```
+
+That second one matters: the backend checks the file's actual bytes, not the
+`contentType` you send. If you claim `image/png` but the bytes are really a JPEG, it's
+accepted anyway and stored under its true type (`GET /companies/me` will show
+`"contentType": "image/jpeg"`, not what you sent). Only bytes that aren't recognizable as
+any of the three types are rejected.
+
+Response to `PUT` is metadata, **never the bytes**:
+
+```jsonc
+{ "contentType": "image/png", "byteSize": 48231, "updatedAt": "2026-08-24T…" }
+```
+
+**`GET /companies/me` includes the same metadata** as a `logo` field (or `null`), so you
+know whether to fetch the image at all before making a second request.
+
+**Downloading the logo — `<img src="...">` will not work.** The route needs
+`Authorization: Bearer <token>`, and a browser never attaches that header to an `<img>`
+request — it will 401. Fetch it manually instead:
+
+```js
+const res = await fetch('/companies/me/logo', { headers: { Authorization: `Bearer ${token}` } });
+const blob = await res.blob();
+const url = URL.createObjectURL(blob);
+// <img src={url} />, and URL.revokeObjectURL(url) when you're done with it
+```
+
+The response carries `ETag` and honors `If-None-Match` with a `304` — worth wiring up if
+the logo is fetched more than once per session, since it rarely changes.
+
+**Verified end to end**, including the size boundary:
+
+| Request | Result |
+|---|---|
+| `PUT` a real PNG | `200`, metadata with the sniffed `contentType` |
+| `GET` right after | `200`, exact same bytes back, correct `Content-Type` |
+| `GET` again with `If-None-Match` | `304` |
+| `PUT` SVG bytes labelled `image/png` | `422` — refused |
+| `PUT` ~600 KB payload | `400`, the human-readable size message |
+| `DELETE`, then `GET` | `204`, then `404` |
+
+A second, higher limit (2 MB) exists behind the 512 KB one as a pure backstop — you
+should never reach it through normal use, but if you ever see a `413` from this API
+instead of a `400`, that's what it is, and it comes back in the same error shape as
+everything else.
+
+---
+
 ## Not changed today — still true
 
 - Auth: `POST /auth/signup`, `POST /auth/login`, 7-day token, `Authorization: Bearer …`
@@ -292,7 +422,7 @@ around them for now.
    the DTO, including `id`, `companyId`, `createdAt`, loaded relations and now
    `totalAmount` / `lineTotal`. Send only the edited fields.
 
-Two gaps from the first version of this document — no order total, and the three user
+Two gaps from earlier versions of this document — no order total, and the three user
 shapes — are closed by changes 4 and 5 above.
 
 Full detail on all of these: [REVIEW-PLAN.md](REVIEW-PLAN.md), Step 5.
