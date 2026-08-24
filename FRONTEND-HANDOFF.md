@@ -5,7 +5,7 @@ Four branches:
 - `fix/safe-deletes-and-stock-audit-trail` — changes 1–3 below ([PR #6](https://github.com/neami-dev/ERP-backend/pull/6), merged)
 - `feature/api-contract-cleanup` — changes 4–6 below ([PR #7](https://github.com/neami-dev/ERP-backend/pull/7), merged)
 - `feature/company-profile` — changes 7–8 below ([PR #8](https://github.com/neami-dev/ERP-backend/pull/8), merged)
-- `feature/roles-and-permissions` — change 9 below, this PR
+- `feature/roles-and-permissions` — change 9 below ([PR #9](https://github.com/neami-dev/ERP-backend/pull/9))
 
 **Nothing else moved** — the error shape, the list shape, pagination, company isolation
 and every other endpoint are exactly as they were.
