@@ -37,6 +37,19 @@ export function isUniqueViolation(error: unknown): boolean {
   return hasPostgresCode(error, PostgresErrorCode.UNIQUE_VIOLATION);
 }
 
+/**
+ * True when the database refuses to delete a row another table still points at.
+ *
+ * This is a rejected request, not a bug: the row is in use and the user needs
+ * to be told which. Left uncaught it reaches the client as an opaque 500,
+ * because the global filter cannot know that a driver error was expected.
+ *
+ * @see removeEntity — the delete path that turns this into a 409.
+ */
+export function isForeignKeyViolation(error: unknown): boolean {
+  return hasPostgresCode(error, PostgresErrorCode.FOREIGN_KEY_VIOLATION);
+}
+
 function hasPostgresCode(error: unknown, code: string): boolean {
   if (!(error instanceof QueryFailedError)) {
     return false;

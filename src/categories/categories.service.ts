@@ -11,6 +11,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { Category } from './entities/category.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Categories form a tree inside one company. Every method takes the
@@ -22,7 +23,7 @@ export class CategoriesService {
   constructor(
     @InjectRepository(Category)
     private readonly categoryRepo: Repository<Category>,
-  ) { }
+  ) {}
 
   async create(createCategoryDto: CreateCategoryDto, companyId: string) {
     const parentId = createCategoryDto.parentId ?? null;
@@ -90,7 +91,7 @@ export class CategoriesService {
     // different from not sending it at all.
     const isMovingParent = 'parentId' in updateCategoryDto;
     const nextParentId = isMovingParent
-      ? updateCategoryDto.parentId ?? null
+      ? (updateCategoryDto.parentId ?? null)
       : category.parentId;
 
     if (isMovingParent && nextParentId !== category.parentId) {
@@ -127,11 +128,11 @@ export class CategoriesService {
       );
     }
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.categoryRepo.remove(category);
-
-    return { ...removed, id };
+    return await removeEntity(
+      this.categoryRepo,
+      category,
+      'This category cannot be deleted: other records still reference it.',
+    );
   }
 
   /**

@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 
@@ -6,6 +10,7 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { Warehouse } from './entities/warehouse.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Every method takes the `companyId` of the caller, read from their JWT,
@@ -16,7 +21,7 @@ export class WarehousesService {
   constructor(
     @InjectRepository(Warehouse)
     private readonly warehouseRepo: Repository<Warehouse>,
-  ) { }
+  ) {}
 
   async create(createWarehouseDto: CreateWarehouseDto, companyId: string) {
     await this.assertNameIsFree(createWarehouseDto.name, companyId);
@@ -79,11 +84,11 @@ export class WarehousesService {
   async remove(id: string, companyId: string) {
     const warehouse = await this.findOne(id, companyId);
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.warehouseRepo.remove(warehouse);
-
-    return { ...removed, id };
+    return await removeEntity(
+      this.warehouseRepo,
+      warehouse,
+      'This warehouse cannot be deleted: it holds stock or has stock history.',
+    );
   }
 
   /**

@@ -6,6 +6,7 @@ import { CreatePurchaseOrderItemDto } from '../dto/create-purchase-order-item.dt
 import { ProductsService } from 'src/products/products.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { UpdatePurchaseOrderItemDto } from '../dto/update-purchase-order-item.dto';
+import { removeEntity } from 'src/common/database/remove-entity';
 
 /**
  * Items can only be touched while their purchase order is still a DRAFT.
@@ -19,7 +20,7 @@ export class PurchaseOrderItemsService {
     private readonly purchaseOrderItemRepository: Repository<PurchaseOrderItem>,
     private readonly productsService: ProductsService,
     private readonly purchaseOrdersService: PurchaseOrdersService,
-  ) { }
+  ) {}
 
   async create(
     purchaseOrderId: string,
@@ -63,11 +64,11 @@ export class PurchaseOrderItemsService {
 
     const item = await this.findItem(purchaseOrderId, itemId);
 
-    // TypeORM's remove() strips the primary key off the returned
-    // entity, so the id is put back for the client.
-    const removed = await this.purchaseOrderItemRepository.remove(item);
-
-    return { ...removed, id: itemId };
+    return await removeEntity(
+      this.purchaseOrderItemRepository,
+      item,
+      'This order line cannot be deleted: other records still reference it.',
+    );
   }
 
   private async findItem(purchaseOrderId: string, itemId: string) {
