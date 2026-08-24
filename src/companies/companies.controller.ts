@@ -27,6 +27,8 @@ import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UploadCompanyLogoDto } from './dto/upload-company-logo.dto';
 import { CompanyLogoDto } from './dto/company-logo.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { RequirePermissions } from 'src/auth/decorators/require-permissions.decorator';
+import { Permission } from 'src/common/permissions/permission';
 import { Company } from './entities/company.entity';
 
 /**
@@ -41,12 +43,13 @@ export class CompaniesController {
   constructor(
     private readonly companiesService: CompaniesService,
     private readonly companyLogosService: CompanyLogosService,
-  ) { }
+  ) {}
 
   // Declared before ':id' on purpose: Nest matches routes in order, so with
   // ':id' first the literal "me" would be parsed as an id and ParseUUIDPipe
   // would answer 400.
   @Get('me')
+  @RequirePermissions(Permission.COMPANIES_READ)
   @ApiOperation({
     summary: 'Get the company of the current user',
   })
@@ -61,6 +64,7 @@ export class CompaniesController {
   // `assertIsOwnCompany` call and another place for the route-ordering trap
   // above to resurface.
   @Put('me/logo')
+  @RequirePermissions(Permission.COMPANIES_UPDATE)
   @ApiOperation({ summary: "Replace the current user's company logo" })
   @ApiOkResponse({ type: CompanyLogoDto })
   async uploadLogo(
@@ -71,6 +75,7 @@ export class CompaniesController {
   }
 
   @Get('me/logo')
+  @RequirePermissions(Permission.COMPANIES_READ)
   @ApiOperation({ summary: "Download the current user's company logo" })
   @ApiProduces('image/png', 'image/jpeg', 'image/webp')
   @ApiOkResponse({ description: 'The raw image bytes.' })
@@ -100,6 +105,7 @@ export class CompaniesController {
   }
 
   @Delete('me/logo')
+  @RequirePermissions(Permission.COMPANIES_UPDATE)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Remove the current user's company logo" })
   @ApiNoContentResponse()
@@ -108,6 +114,7 @@ export class CompaniesController {
   }
 
   @Get(':id')
+  @RequirePermissions(Permission.COMPANIES_READ)
   @ApiOperation({
     summary: 'Get a company by ID (your own company only)',
   })
@@ -120,6 +127,7 @@ export class CompaniesController {
   }
 
   @Patch(':id')
+  @RequirePermissions(Permission.COMPANIES_UPDATE)
   @ApiOperation({
     summary: 'Update a company by ID (your own company only)',
   })

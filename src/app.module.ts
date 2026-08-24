@@ -16,6 +16,7 @@ import { PurchaseOrdersModule } from './purchases/purchases.module';
 import { CompaniesModule } from './companies/companies.module';
 import { StockMovementsModule } from './stock-movements/stock-movements.module';
 import { CustomersModule } from './customers/customers.module';
+import { RolesModule } from './roles/roles.module';
 
 @Module({
   controllers: [AppController],
@@ -48,6 +49,8 @@ import { CustomersModule } from './customers/customers.module';
     StockMovementsModule,
 
     CustomersModule,
+
+    RolesModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

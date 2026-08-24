@@ -1,20 +1,38 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, ParseUUIDPipe } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  ParseUUIDPipe,
+} from '@nestjs/common';
+import {
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { RequirePermissions } from 'src/auth/decorators/require-permissions.decorator';
 import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { Permission } from 'src/common/permissions/permission';
 import { Customer } from './entities/customer.entity';
 
 @ApiTags('customers')
 @Controller('customers')
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) { }
+  constructor(private readonly customersService: CustomersService) {}
 
   @Post()
+  @RequirePermissions(Permission.CUSTOMERS_CREATE)
   @ApiOperation({ summary: 'Create a customer for the current company' })
   @ApiCreatedResponse({ type: Customer })
   create(
@@ -25,6 +43,7 @@ export class CustomersController {
   }
 
   @Get()
+  @RequirePermissions(Permission.CUSTOMERS_READ)
   @ApiOperation({ summary: 'Get the customers of the current company' })
   @ApiPaginatedResponse(Customer)
   findAll(
@@ -35,6 +54,7 @@ export class CustomersController {
   }
 
   @Get(':id')
+  @RequirePermissions(Permission.CUSTOMERS_READ)
   @ApiOperation({ summary: 'Get a customer by ID' })
   @ApiOkResponse({ type: Customer })
   findOne(
@@ -45,6 +65,7 @@ export class CustomersController {
   }
 
   @Patch(':id')
+  @RequirePermissions(Permission.CUSTOMERS_UPDATE)
   @ApiOperation({ summary: 'Update a customer by ID' })
   @ApiOkResponse({ type: Customer })
   update(
@@ -56,6 +77,7 @@ export class CustomersController {
   }
 
   @Delete(':id')
+  @RequirePermissions(Permission.CUSTOMERS_DELETE)
   @ApiOperation({ summary: 'Delete a customer by ID' })
   @ApiOkResponse({ type: Customer })
   remove(

@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { ApiHideProperty } from '@nestjs/swagger';
 import { Company } from 'src/companies/entities/company.entity';
+import { Role } from 'src/roles/entities/role.entity';
 
 @Entity('users')
 @Unique(['email'])
@@ -68,6 +69,13 @@ export class User {
 
   @Column({ name: 'company_id' })
   companyId: string;
+
+  @ManyToOne(() => Role, { nullable: false })
+  @JoinColumn({ name: 'role_id' })
+  role: Role;
+
+  @Column({ name: 'role_id' })
+  roleId: string;
 
   @CreateDateColumn()
   createdAt: Date;

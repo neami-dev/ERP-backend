@@ -9,7 +9,12 @@ import {
   Query,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { PurchaseOrdersService } from './services/purchase-orders.service';
 import { PurchaseOrderItemsService } from './services/purchase-order-items.service';
@@ -20,7 +25,9 @@ import { UpdatePurchaseOrderItemDto } from './dto/update-purchase-order-item.dto
 import { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { RequirePermissions } from 'src/auth/decorators/require-permissions.decorator';
 import { ApiPaginatedResponse } from 'src/common/dto/paginated.dto';
+import { Permission } from 'src/common/permissions/permission';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 
@@ -30,13 +37,14 @@ export class PurchasesController {
   constructor(
     private readonly purchaseOrdersService: PurchaseOrdersService,
     private readonly purchaseOrderItemsService: PurchaseOrderItemsService,
-  ) { }
+  ) {}
 
   // =============================
   // Purchase Order Endpoints
   // =============================
 
   @Post()
+  @RequirePermissions(Permission.PURCHASES_CREATE)
   @ApiOperation({ summary: 'Create a purchase order for the current company' })
   @ApiCreatedResponse({ type: PurchaseOrder })
   create(
@@ -47,6 +55,7 @@ export class PurchasesController {
   }
 
   @Get()
+  @RequirePermissions(Permission.PURCHASES_READ)
   @ApiOperation({ summary: 'Get the purchase orders of the current company' })
   @ApiPaginatedResponse(PurchaseOrder)
   findAll(
@@ -57,6 +66,7 @@ export class PurchasesController {
   }
 
   @Get(':id')
+  @RequirePermissions(Permission.PURCHASES_READ)
   @ApiOperation({ summary: 'Get a purchase order by ID' })
   @ApiOkResponse({ type: PurchaseOrder })
   findOne(
@@ -67,6 +77,7 @@ export class PurchasesController {
   }
 
   @Patch(':id')
+  @RequirePermissions(Permission.PURCHASES_UPDATE)
   @ApiOperation({ summary: 'Update a draft purchase order by ID' })
   @ApiOkResponse({ type: PurchaseOrder })
   update(
@@ -82,6 +93,7 @@ export class PurchasesController {
   }
 
   @Delete(':id')
+  @RequirePermissions(Permission.PURCHASES_DELETE)
   @ApiOperation({ summary: 'Delete a purchase order by ID' })
   @ApiOkResponse({ type: PurchaseOrder })
   remove(
@@ -92,6 +104,7 @@ export class PurchasesController {
   }
 
   @Patch(':id/confirm')
+  @RequirePermissions(Permission.PURCHASES_CONFIRM)
   @ApiOperation({ summary: 'Confirm a draft purchase order' })
   @ApiOkResponse({ type: PurchaseOrder })
   confirm(
@@ -102,6 +115,7 @@ export class PurchasesController {
   }
 
   @Patch(':id/cancel')
+  @RequirePermissions(Permission.PURCHASES_CANCEL)
   @ApiOperation({ summary: 'Cancel a purchase order' })
   @ApiOkResponse({ type: PurchaseOrder })
   cancel(
@@ -112,6 +126,7 @@ export class PurchasesController {
   }
 
   @Patch(':id/receive')
+  @RequirePermissions(Permission.PURCHASES_RECEIVE)
   @ApiOperation({
     summary: 'Receive a confirmed purchase order into inventory',
   })
@@ -133,6 +148,7 @@ export class PurchasesController {
   // =============================
 
   @Post(':purchaseOrderId/items')
+  @RequirePermissions(Permission.PURCHASES_UPDATE)
   @ApiOperation({ summary: 'Add an item to a draft purchase order' })
   @ApiCreatedResponse({ type: PurchaseOrderItem })
   addItem(
@@ -148,6 +164,7 @@ export class PurchasesController {
   }
 
   @Patch(':purchaseOrderId/items/:itemId')
+  @RequirePermissions(Permission.PURCHASES_UPDATE)
   @ApiOperation({ summary: 'Update an item of a draft purchase order' })
   @ApiOkResponse({ type: PurchaseOrderItem })
   updateItem(
@@ -165,6 +182,7 @@ export class PurchasesController {
   }
 
   @Delete(':purchaseOrderId/items/:itemId')
+  @RequirePermissions(Permission.PURCHASES_UPDATE)
   @ApiOperation({ summary: 'Remove an item from a draft purchase order' })
   @ApiOkResponse({ type: PurchaseOrderItem })
   removeItem(

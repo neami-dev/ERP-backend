@@ -1,10 +1,11 @@
-# Frontend handoff — backend changes, 2026-08-23
+# Frontend handoff — backend changes, 2026-08-24
 
-Three branches:
+Four branches:
 
-- `fix/safe-deletes-and-stock-audit-trail` — changes 1–3 below ([PR #6](https://github.com/neami-dev/ERP-backend/pull/6))
-- `feature/api-contract-cleanup` — changes 4–6 below ([PR #7](https://github.com/neami-dev/ERP-backend/pull/7))
-- `feature/company-profile` — changes 7–8 below, **not yet committed or pushed**
+- `fix/safe-deletes-and-stock-audit-trail` — changes 1–3 below ([PR #6](https://github.com/neami-dev/ERP-backend/pull/6), merged)
+- `feature/api-contract-cleanup` — changes 4–6 below ([PR #7](https://github.com/neami-dev/ERP-backend/pull/7), merged)
+- `feature/company-profile` — changes 7–8 below ([PR #8](https://github.com/neami-dev/ERP-backend/pull/8), merged)
+- `feature/roles-and-permissions` — change 9 below, this PR
 
 **Nothing else moved** — the error shape, the list shape, pagination, company isolation
 and every other endpoint are exactly as they were.
@@ -19,6 +20,7 @@ and every other endpoint are exactly as they were.
 | 6 | `OUT` movements take a `fromReservation` flag | **New field** on the stock-out call |
 | 7 | Company gains legal identifiers, currency, fiscal year | **New fields** on `GET /companies/me` and `PATCH` |
 | 8 | Company logo: `PUT/GET/DELETE /companies/me/logo` | **New routes** — raw binary, needs a fetch-and-blob pattern |
+| 9 | Roles & permissions (RBAC) — every route now needs a permission | **Breaking** — any call can now 403; new `/roles` and `/users` endpoints |
 
 ---
 
@@ -387,6 +389,109 @@ everything else.
 
 ---
 
+## 9. Roles & permissions (RBAC) — new
+
+Every route now needs a permission. Before this, being logged in was enough to call
+anything; now the caller's **role** decides what they can do. This closes gap 4 from
+earlier versions of this document ("one user per company, no invite or user list") — you
+can build a team/settings screen now.
+
+**The mental model:**
+
+- Every company gets an **Owner** role for free at signup. Owner can do everything,
+  including managing users and roles. There is always exactly one Owner role per
+  company, and it cannot be renamed, edited or deleted.
+- The Owner creates **custom roles** with an exact set of permissions — e.g. an
+  "Employee" role that can see products but not delete them, or create purchase orders
+  but not confirm them.
+- Users are created directly (no email invite yet) with a role assigned at creation, and
+  can be moved to a different role later.
+
+**`AuthUser` gains a field** (see change 4 for the rest of the shape):
+
+```ts
+interface AuthUser {
+  // ...id, email, firstName, lastName, companyId, companyName — unchanged
+  roleId: string   // new
+}
+```
+
+**New endpoints:**
+
+```
+GET    /roles                 list roles in your company
+GET    /roles/permissions     the full permission catalog — use this to render
+                               checkboxes when building a role
+POST   /roles                 { name, permissions: string[] }
+GET    /roles/:id
+PATCH  /roles/:id             400/403 on the Owner role
+DELETE /roles/:id             403 on the Owner role; 409 if still assigned to a user
+
+GET    /users                 list users in your company, each with their role
+GET    /users/:id
+POST   /users                 { email, password, firstName, lastName?, roleId }
+PATCH  /users/:id             { firstName?, lastName?, isActive?, roleId? }
+                               — no DELETE: turn a user off with isActive instead
+```
+
+**The permission catalog** — 36 strings, one per resource action. Ask
+`GET /roles/permissions` for the live list rather than hardcoding it, but for reference:
+
+| Resource | Permissions |
+|---|---|
+| products, categories, suppliers, warehouses, customers | `create`, `read`, `update`, `delete` (e.g. `products:read`) |
+| inventories | `read`, `delete` |
+| stock-movements | `create`, `read` |
+| purchases | `create`, `read`, `update`, `delete`, plus `confirm`, `cancel`, `receive` as their own permissions — an Employee role can be allowed to create a draft order without being allowed to confirm or receive one |
+| companies | `read`, `update` (covers the profile and the logo routes) |
+| users | `read`, `manage` |
+| roles | `manage` |
+
+**A blocked call answers `403`, same error shape as everything else:**
+
+```jsonc
+{
+  "statusCode": 403,
+  "error": "Forbidden",
+  "message": "You do not have permission to do this",
+  "path": "/products",
+  "timestamp": "2026-08-24T16:15:37.397Z"
+}
+```
+
+**What to build:** a 403 branch, distinct from a 401. A 401 means "log in again"; a 403
+means "you're logged in, but your role can't do this" — the right UI response is usually
+to hide or disable the button rather than show it and fail on click. You now have
+everything needed to do that: read `roleId` off the session, fetch that role's
+permissions from `GET /roles/:id`, and gate the UI on the same permission strings the
+backend checks.
+
+**Two things worth knowing before you build the role editor:**
+
+- A company can never end up with zero active Owners — the backend blocks demoting or
+  deactivating the last one with a `409`. Don't let the UI offer that action on the only
+  Owner without expecting it to fail.
+- Same as gap 4 below: a permission change takes effect on the user's *next* request —
+  there is no push — but `isActive` is still only checked at **login**, not per request,
+  so a deactivated user keeps working until their token expires (up to 7 days).
+
+**Verified end to end:**
+
+| Request | Result |
+|---|---|
+| `POST /auth/signup` | Owner role auto-created, `roleId` in both the token and the response |
+| `POST /roles` `{name: "Employee", permissions: ["products:read"]}` | `201`, role created |
+| `POST /users` with that `roleId` | `201`, user created |
+| Employee logs in, `GET /products` | `200` |
+| Employee `POST /products` | `403` "You do not have permission to do this" |
+| Employee `GET /roles` | `403` (lacks `roles:manage`) |
+| Employee `GET /auth/profile` | `200` — no permission required beyond being logged in |
+| Owner `PATCH` / `DELETE` on the Owner role | both `403` |
+| Owner deactivates the only Owner user | `409` "This company must always have at least one active Owner." |
+| `DELETE` a role still assigned to a user | `409` "This role cannot be deleted: it is still assigned to users. Move them to another role first." |
+
+---
+
 ## Not changed today — still true
 
 - Auth: `POST /auth/signup`, `POST /auth/login`, 7-day token, `Authorization: Bearer …`
@@ -414,15 +519,17 @@ around them for now.
 3. **`orderDate` / `expectedDate` are calendar dates** (`"2026-08-23"`), not timestamps.
    `new Date("2026-08-23")` parses as UTC midnight and renders as the previous day west
    of UTC.
-4. **One user per company** — signup always creates a new company, and there is no
-   invite or user list yet. Blocks any team or settings screen.
-5. **A deactivated user keeps working until their token expires** (up to 7 days).
+4. **A deactivated user keeps working until their token expires** (up to 7 days).
    `isActive` is only read at login.
-6. **Never PATCH back an object you fetched.** Validation rejects any property outside
+5. **Never PATCH back an object you fetched.** Validation rejects any property outside
    the DTO, including `id`, `companyId`, `createdAt`, loaded relations and now
    `totalAmount` / `lineTotal`. Send only the edited fields.
+6. **User creation is direct, not an email invite.** `POST /users` takes a plain
+   password chosen by the Owner — there is no invite email, no "set your own password"
+   link. Fine for now, but don't design the team screen as if an email goes out.
 
-Two gaps from earlier versions of this document — no order total, and the three user
-shapes — are closed by changes 4 and 5 above.
+Three gaps from earlier versions of this document — no order total, the three user
+shapes, and one user per company with no user list — are closed by changes 4, 5 and 9
+above.
 
 Full detail on all of these: [REVIEW-PLAN.md](REVIEW-PLAN.md), Step 5.

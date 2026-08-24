@@ -25,6 +25,9 @@ export class AuthUserDto {
     description: 'The company this user belongs to. Always present.',
   })
   companyName: string;
+
+  @ApiProperty({ example: 'ff83ac6c-40c8-4c36-b393-017f4e83b50b' })
+  roleId: string;
 }
 
 export class AuthResponseDto {
