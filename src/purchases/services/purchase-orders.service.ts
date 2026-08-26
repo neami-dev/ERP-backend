@@ -11,16 +11,9 @@ import { UpdatePurchaseOrderDto } from '../dto/update-purchase-order.dto';
 import { PurchaseOrder } from '../entities/purchase-order.entity';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { Supplier } from 'src/suppliers/entities/supplier.entity';
-import { Warehouse } from 'src/warehouses/entities/warehouse.entity';
 import { DocumentType } from 'src/common/ document-number/document-type.enum';
 import { DocumentNumberService } from 'src/common/ document-number/document-number.service';
 import { PurchaseOrderStatus } from '../enums/purchase-order-status.enum';
-import {
-  StockMovement,
-  StockMovementReferenceType,
-  StockMovementType,
-} from 'src/stock-movements/entities/stock-movement.entity';
-import { InventoriesService } from 'src/inventories/inventories.service';
 import { today } from 'src/common/utils/calendar-date';
 import { removeEntity } from 'src/common/database/remove-entity';
 
@@ -28,8 +21,13 @@ import { removeEntity } from 'src/common/database/remove-entity';
  * Every method takes the `companyId` of the caller, read from their JWT, so an
  * order and everything it points at stay inside one company.
  *
- * Status flow: DRAFT → CONFIRMED → RECEIVED, with CANCELLED reachable from
- * DRAFT or CONFIRMED. Only a DRAFT can be edited.
+ * Status flow: DRAFT → CONFIRMED → (PARTIALLY_RECEIVED →) RECEIVED, with
+ * CANCELLED reachable from DRAFT or CONFIRMED. Only a DRAFT can be edited.
+ *
+ * PARTIALLY_RECEIVED and RECEIVED are normally set by
+ * `GoodsReceiptsService.confirm()`, from the quantities actually received
+ * against each line. `receive()` here is a separate, manual override — see
+ * its own doc comment.
  */
 @Injectable()
 export class PurchaseOrdersService {
@@ -38,10 +36,7 @@ export class PurchaseOrdersService {
     private readonly purchaseOrderRepo: Repository<PurchaseOrder>,
     @InjectRepository(Supplier)
     private readonly supplierRepo: Repository<Supplier>,
-    @InjectRepository(Warehouse)
-    private readonly warehouseRepo: Repository<Warehouse>,
     private readonly documentNumberService: DocumentNumberService,
-    private readonly inventoriesService: InventoriesService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -188,9 +183,13 @@ export class PurchaseOrdersService {
   async remove(id: string, companyId: string) {
     const purchaseOrder = await this.findOne(id, companyId);
 
-    // A received order is the reason stock exists in the warehouse. Deleting
-    // it would break the audit trail that the stock movements point back to.
-    if (purchaseOrder.status === PurchaseOrderStatus.RECEIVED) {
+    // A (partially) received order is the reason stock exists in the
+    // warehouse. Deleting it would break the audit trail that the goods
+    // receipts and stock movements point back to.
+    if (
+      purchaseOrder.status === PurchaseOrderStatus.RECEIVED ||
+      purchaseOrder.status === PurchaseOrderStatus.PARTIALLY_RECEIVED
+    ) {
       throw new BadRequestException(
         'A received purchase order cannot be deleted. Keep it for the stock history.',
       );
@@ -226,9 +225,12 @@ export class PurchaseOrdersService {
   async cancel(id: string, companyId: string): Promise<PurchaseOrder> {
     const purchaseOrder = await this.findOne(id, companyId);
 
-    if (purchaseOrder.status === PurchaseOrderStatus.RECEIVED) {
+    if (
+      purchaseOrder.status === PurchaseOrderStatus.RECEIVED ||
+      purchaseOrder.status === PurchaseOrderStatus.PARTIALLY_RECEIVED
+    ) {
       throw new BadRequestException(
-        'A received purchase order cannot be cancelled.',
+        'A (partially) received purchase order cannot be cancelled.',
       );
     }
 
@@ -242,84 +244,31 @@ export class PurchaseOrdersService {
   }
 
   /**
-   * Receives a confirmed order into a warehouse.
+   * Manually marks an order RECEIVED.
    *
-   * Everything happens in one transaction: each item raises the stock, each
-   * one writes a stock movement, and the order moves to RECEIVED. If any item
-   * fails, the whole receipt rolls back — stock never ends up half-updated.
+   * This is a plain status flag, not a stock operation: it does not move
+   * stock and does not care whether every line has actually arrived. It
+   * exists so a user can record "this order is done" for their own tracking
+   * even without filing a goods receipt for it.
    *
-   * The stock itself is changed through `InventoriesService.applyMovement`,
-   * which locks the stock row, so two receipts arriving together cannot
-   * overwrite each other.
+   * The real, quantity-accurate way to receive stock is
+   * `GoodsReceiptsService.confirm()`, which raises stock line by line and
+   * drives this same status to PARTIALLY_RECEIVED / RECEIVED on its own.
    */
-  async receive(
-    id: string,
-    warehouseId: string,
-    companyId: string,
-  ): Promise<PurchaseOrder> {
+  async receive(id: string, companyId: string): Promise<PurchaseOrder> {
     const purchaseOrder = await this.findOne(id, companyId);
 
-    if (purchaseOrder.status !== PurchaseOrderStatus.CONFIRMED) {
+    if (
+      purchaseOrder.status !== PurchaseOrderStatus.CONFIRMED &&
+      purchaseOrder.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED
+    ) {
       throw new BadRequestException(
-        'Only confirmed purchase orders can be received.',
+        'Only a confirmed or partially received purchase order can be marked as received.',
       );
     }
 
-    if (purchaseOrder.items.length === 0) {
-      throw new BadRequestException('Purchase order contains no items.');
-    }
+    purchaseOrder.status = PurchaseOrderStatus.RECEIVED;
 
-    const warehouseExists = await this.warehouseRepo.existsBy({
-      id: warehouseId,
-      companyId,
-    });
-
-    if (!warehouseExists) {
-      throw new NotFoundException('Warehouse not found');
-    }
-
-    const queryRunner = this.dataSource.createQueryRunner();
-
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      for (const item of purchaseOrder.items) {
-        await this.inventoriesService.applyMovement(
-          queryRunner,
-          item.productId,
-          warehouseId,
-          companyId,
-          StockMovementType.IN,
-          item.quantity,
-        );
-
-        const movement = queryRunner.manager.create(StockMovement, {
-          productId: item.productId,
-          warehouseId,
-          companyId,
-          type: StockMovementType.IN,
-          quantity: item.quantity,
-          unitCost: item.unitCost,
-          referenceType: StockMovementReferenceType.PURCHASE_ORDER,
-          referenceId: purchaseOrder.id,
-        });
-
-        await queryRunner.manager.save(movement);
-      }
-
-      purchaseOrder.status = PurchaseOrderStatus.RECEIVED;
-
-      await queryRunner.manager.save(purchaseOrder);
-
-      await queryRunner.commitTransaction();
-
-      return purchaseOrder;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    return await this.purchaseOrderRepo.save(purchaseOrder);
   }
 }

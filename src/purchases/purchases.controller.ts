@@ -22,7 +22,6 @@ import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { CreatePurchaseOrderItemDto } from './dto/create-purchase-order-item.dto';
 import { UpdatePurchaseOrderItemDto } from './dto/update-purchase-order-item.dto';
-import { ReceivePurchaseOrderDto } from './dto/receive-purchase-order.dto';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { RequirePermissions } from 'src/auth/decorators/require-permissions.decorator';
@@ -128,19 +127,16 @@ export class PurchasesController {
   @Patch(':id/receive')
   @RequirePermissions(Permission.PURCHASES_RECEIVE)
   @ApiOperation({
-    summary: 'Receive a confirmed purchase order into inventory',
+    summary:
+      'Manually mark a purchase order as received. A status flag only ' +
+      '— it does not move stock; use goods receipts for that.',
   })
   @ApiOkResponse({ type: PurchaseOrder })
   receive(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() receivePurchaseOrderDto: ReceivePurchaseOrderDto,
     @CurrentUser('companyId') companyId: string,
   ) {
-    return this.purchaseOrdersService.receive(
-      id,
-      receivePurchaseOrderDto.warehouseId,
-      companyId,
-    );
+    return this.purchaseOrdersService.receive(id, companyId);
   }
 
   // =============================

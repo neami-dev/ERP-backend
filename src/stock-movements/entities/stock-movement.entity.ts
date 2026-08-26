@@ -16,6 +16,7 @@ import { decimalTransformer } from 'src/common/transformers/decimal.transformer'
 
 export enum StockMovementReferenceType {
   PURCHASE_ORDER = 'PURCHASE_ORDER',
+  GOODS_RECEIPT = 'GOODS_RECEIPT',
   SALES_ORDER = 'SALES_ORDER',
   RETURN = 'RETURN',
   ADJUSTMENT = 'ADJUSTMENT',
@@ -35,7 +36,6 @@ export enum StockMovementType {
 @Index('IDX_STOCK_MOVEMENT_CREATED_AT', ['createdAt'])
 @Index('IDX_STOCK_MOVEMENT_COMPANY', ['companyId'])
 @Index('IDX_STOCK_MOVEMENT_REFERENCE', ['referenceType', 'referenceId'])
-
 export class StockMovement {
   @PrimaryGeneratedColumn('uuid')
   id: string;

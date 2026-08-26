@@ -46,6 +46,12 @@ export const Permission = {
   PURCHASES_CANCEL: 'purchases:cancel',
   PURCHASES_RECEIVE: 'purchases:receive',
 
+  GOODS_RECEIPTS_CREATE: 'goods-receipts:create',
+  GOODS_RECEIPTS_READ: 'goods-receipts:read',
+  GOODS_RECEIPTS_UPDATE: 'goods-receipts:update',
+  GOODS_RECEIPTS_CONFIRM: 'goods-receipts:confirm',
+  GOODS_RECEIPTS_CANCEL: 'goods-receipts:cancel',
+
   COMPANIES_READ: 'companies:read',
   COMPANIES_UPDATE: 'companies:update',
 

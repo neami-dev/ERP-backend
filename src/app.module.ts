@@ -17,6 +17,7 @@ import { CompaniesModule } from './companies/companies.module';
 import { StockMovementsModule } from './stock-movements/stock-movements.module';
 import { CustomersModule } from './customers/customers.module';
 import { RolesModule } from './roles/roles.module';
+import { GoodsReceiptsModule } from './goods-receipts/goods-receipts.module';
 
 @Module({
   controllers: [AppController],
@@ -51,6 +52,8 @@ import { RolesModule } from './roles/roles.module';
     CustomersModule,
 
     RolesModule,
+
+    GoodsReceiptsModule,
   ],
 })
 export class AppModule {}
